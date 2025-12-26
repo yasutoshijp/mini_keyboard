@@ -1,0 +1,10 @@
+.env
+cache/
+logs/
+*.pyc
+__pycache__/
+*.log
+*.wav
+audio/
+mukashimukashi/
+service_account.json
