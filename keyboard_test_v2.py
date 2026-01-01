@@ -205,17 +205,22 @@ def load_fan_messages():
             from datetime import datetime
 
 
-
-
             def parse_timestamp(msg):
                 ts = msg['timestamp']
-                if 'T' in ts or 'Z' in ts:
-                    # ISO形式（タイムゾーン情報あり）→ naive datetimeに変換
-                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                    return dt.replace(tzinfo=None)
-                else:
-                    # スラッシュ形式（タイムゾーン情報なし）
-                    return datetime.strptime(ts, '%Y/%m/%d %H:%M:%S')
+                try:
+                    # まずスラッシュ形式を試す（最新メッセージ用）
+                    if '/' in ts:
+                        return datetime.strptime(ts, '%Y/%m/%d %H:%M:%S')
+                    # ISO形式
+                    elif 'T' in ts or 'Z' in ts:
+                        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        return dt.replace(tzinfo=None)
+                    else:
+                        return datetime.min  # パースできない場合は最古扱い
+                except Exception as e:
+                    print(f"⚠️ タイムスタンプ解析エラー: {ts} - {e}")
+                    return datetime.min
+
 
             fan_messages = sorted(fan_messages_raw, key=parse_timestamp, reverse=True)
             print(f"✓ {len(fan_messages)}件のメッセージを読み込みました\n")
