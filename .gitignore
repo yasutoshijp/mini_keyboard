@@ -1,0 +1,23 @@
+# Audio files
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.pcm
+
+# Directories to ignore
+cache/
+logs/
+audio/
+mukashimukashi/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+
+# System
+.DS_Store
+Thumbs.db
