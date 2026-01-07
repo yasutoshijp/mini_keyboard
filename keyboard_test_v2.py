@@ -8,6 +8,7 @@ import sys
 import subprocess
 import threading
 import requests
+import json
 
 
 
@@ -27,10 +28,12 @@ load_dotenv()
 ENV = os.getenv('ENVIRONMENT', 'jikka')
 SPEAKER_CARD = os.getenv('SPEAKER_CARD', '2')
 MIC_CARD = os.getenv('MIC_CARD', '3')
+MIN_VOLUME = int(os.getenv('MIN_VOLUME', '50'))
 
 print(f"🌍 環境: {ENV}")
 print(f"🔊 スピーカー: hw:{SPEAKER_CARD},0")
 print(f"🎤 マイク: hw:{MIC_CARD},0")
+print(f"📉 音量下限: {MIN_VOLUME}%")
 
 
 
@@ -53,8 +56,12 @@ os.environ['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
 
 # ========== グローバル変数 ==========
 # メニュー項目
-menu_items = ["ブログファンからメッセージ", "むかしむかし", "ブログ投稿", "LINEする"]
+menu_items = ["ブログファンからメッセージ", "むかしむかし", "ブログ投稿", "LINEする", "鳥のさえずり"]
 current_menu = 0
+
+# 鳥のさえずり用
+bird_songs = []
+bird_song_index = 0
 
 # むかしむかし用
 mukashimukashi_files = []
@@ -67,7 +74,7 @@ fan_message_index = 0
 
 
 # モード管理
-mode = "main_menu"  # "main_menu", "fan_message_menu", "playing_message", "mukashimukashi_menu", "playing_story", "blog_ready", "blog_recording", "blog_confirm"
+mode = "main_menu"  # "main_menu", "fan_message_menu", "playing_message", "mukashimukashi_menu", "playing_story", "blog_ready", "blog_recording", "blog_confirm", "bird_song_menu", "playing_bird_song"
 
 
 # ブログ投稿用
@@ -112,6 +119,7 @@ def load_sounds():
         'menu_1': f'{AUDIO_DIR}/menu_1.wav',
         'menu_2': f'{AUDIO_DIR}/menu_2.wav',
         'menu_3': f'{AUDIO_DIR}/menu_3.wav',
+        'menu_4': f'{AUDIO_DIR}/menu_4.wav',
         'kettei': f'{AUDIO_DIR}/kettei.wav',
         'modoru': f'{AUDIO_DIR}/modoru.wav',
         'beep': f'{AUDIO_DIR}/beep.wav',
@@ -137,6 +145,49 @@ def load_sounds():
                 print(f"警告: {filepath} の読み込み失敗: {e}")
         else:
             print(f"警告: ファイルが見つかりません: {filepath}")
+
+def load_bird_songs():
+    """鳥のさえずりデータをロード"""
+    global bird_songs
+    json_path = os.path.join(os.path.dirname(__file__), "bird_songs.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                bird_songs = json.load(f)
+                print(f"✓ {len(bird_songs)}件の鳥のデータをロードしました")
+                return True
+        except Exception as e:
+            print(f"⚠️ 鳥のデータロードエラー: {e}")
+            return False
+    else:
+        print(f"⚠️ {json_path} が見つかりません")
+        return False
+
+def play_bird_name(index):
+    """鳥の名前を再生"""
+    if 0 <= index < len(bird_songs):
+        bird = bird_songs[index]
+        name = bird['name']
+        filepath = f"{AUDIO_DIR}/bird_names/{name}.wav"
+        print(f"🐦 鳥の名前: {name}")
+        play_audio_file(filepath)
+
+def play_bird_song_content(index):
+    """鳥のさえずりを再生"""
+    global mode
+    if 0 <= index < len(bird_songs):
+        bird = bird_songs[index]
+        filepath = f"{AUDIO_DIR}/bird_songs/{bird['filename']}"
+        print(f"🎵 鳴き声再生: {bird['name']} ({bird['memo']})")
+        mode = "playing_bird_song"
+        play_audio_file(filepath, wait=False)
+
+def stop_bird_song():
+    """鳥の声を停止"""
+    global mode
+    print("⏹️  鳥の声を停止")
+    pygame.mixer.stop()
+    mode = "bird_song_menu"
 
 def speak(text, index=None):
     """音声再生"""
@@ -278,12 +329,8 @@ def play_fan_message_content(index):
     if message_file.exists():
         import pygame
         sound = pygame.mixer.Sound(str(message_file))
-        channel = sound.play()
-        # 再生終了まで待機
-        while channel.get_busy():
-            pygame.time.Clock().tick(10)
-        # 再生完了後、メニューに戻る
-        mode = "fan_message_menu"
+        sound.play()
+        # Non-blocking: rely on main loop to revert mode
     else:
         print(f"⚠️ メッセージファイルが見つかりません: {message_file}")
         mode = "fan_message_menu"
@@ -540,13 +587,13 @@ def adjust_volume_loop(direction):
 
     while volume_adjusting:
         if direction == "down":
-            current_volume = max(30, current_volume - 5)  # 55%未満にならないように
+            current_volume = max(MIN_VOLUME, current_volume - 5)  # 設定された下限未満にならないように
         else:  # up
             current_volume = min(100, current_volume + 5)
 
         # ALSAで音量設定
         subprocess.run(
-            ['amixer', '-c', '2', 'sset', 'PCM', f'{current_volume}%'],
+            ['amixer', '-c', SPEAKER_CARD, 'sset', 'PCM', f'{current_volume}%'],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -596,6 +643,13 @@ def handle_rotate(direction):
         play_title(mukashimukashi_index)
         knob_counter = 0
 
+    elif mode == "bird_song_menu":
+        # 鳥のさえずりメニューを循環
+        global bird_song_index
+        bird_song_index = (bird_song_index + (1 if knob_counter > 0 else -1)) % len(bird_songs)
+        play_bird_name(bird_song_index)
+        knob_counter = 0
+
     elif mode == "playing_story":
         # 再生中は回転を無視
         knob_counter = 0
@@ -607,7 +661,7 @@ def handle_rotate(direction):
 
 def handle_button_press():
     """ノブ押下（決定）時の処理"""
-    global mode, current_menu, last_mute_time, mukashimukashi_index, fan_message_index, blog_confirm_start_time
+    global mode, current_menu, last_mute_time, mukashimukashi_index, fan_message_index, blog_confirm_start_time, bird_song_index
 
 
 
@@ -633,14 +687,17 @@ def handle_button_press():
 
 
         if selected == "ブログファンからメッセージ":
-            if not fan_messages:
-                if not load_fan_messages():
-                    print("メッセージの取得に失敗しました")
-                    return
+            # if not fan_messages:  <-- この行を削除またはコメントアウト
+            # 毎回ロードを実行する
+            if not load_fan_messages():
+                print("メッセージの取得に失敗しました")
+                # 失敗した場合はメニューに入らない方が安全なら return する
+                return
 
             mode = "fan_message_menu"
             fan_message_index = 0
             play_fan_message_name(fan_message_index)
+
 
         elif selected == "むかしむかし":
 
@@ -656,6 +713,13 @@ def handle_button_press():
         elif selected == "ブログ投稿":
             do_blog_post()
 
+        elif selected == "鳥のさえずり":
+            if not bird_songs:
+                if not load_bird_songs():
+                    return
+            mode = "bird_song_menu"
+            bird_song_index = 0
+            play_bird_name(bird_song_index)
 
     elif mode == "fan_message_menu":
         print(f"\n✅ メッセージを再生開始\n")
@@ -678,7 +742,12 @@ def handle_button_press():
 
         play_story(mukashimukashi_index)
 
-
+    elif mode == "bird_song_menu":
+        print(f"\n✅ 鳥の声を再生開始\n")
+        if 'saisei' in sounds:
+            sounds['saisei'].play()
+            time.sleep(1.4)
+        play_bird_song_content(bird_song_index)
 
     elif mode == "playing_story":
         stop_story()
@@ -742,6 +811,10 @@ def handle_back_button():
         stop_story()
         speak("戻る")
 
+    elif mode == "playing_bird_song":
+        stop_bird_song()
+        speak("戻る")
+
     elif mode == "blog_ready":
         # ブログ投稿をキャンセル
         if 'blog_cancel' in sounds:
@@ -785,6 +858,10 @@ def handle_back_button():
             speak(menu_items[current_menu], index=current_menu)
 
         elif mode == "fan_message_menu":
+            mode = "main_menu"
+            speak(menu_items[current_menu], index=current_menu)
+
+        elif mode == "bird_song_menu":
             mode = "main_menu"
             speak(menu_items[current_menu], index=current_menu)
 
@@ -874,6 +951,15 @@ def main():
 
                         mode = "blog_confirm"
                         blog_confirm_start_time = time.time()
+
+                # 再生完了チェック（非ブロッキング再生の事後処理）
+                if mode == "playing_bird_song" or mode == "playing_message":
+                    if not pygame.mixer.get_busy():
+                        print(f"\n✅ 再生完了: メニューに戻ります (mode: {mode})\n")
+                        if mode == "playing_bird_song":
+                            mode = "bird_song_menu"
+                        else:
+                            mode = "fan_message_menu"
 
 
 
