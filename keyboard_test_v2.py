@@ -178,9 +178,10 @@ def play_bird_song_content(index):
     if 0 <= index < len(bird_songs):
         bird = bird_songs[index]
         filepath = f"{AUDIO_DIR}/bird_songs/{bird['filename']}"
-        print(f"🎵 鳴き声再生: {bird['name']} ({bird['memo']})")
+        print(f"🎵 鳴き声再生 (2回連続): {bird['name']} ({bird['memo']})")
         mode = "playing_bird_song"
-        play_audio_file(filepath, wait=False)
+        # 全ての鳥の鳴き声を一律 2回再生（loops=1）にする
+        play_audio_file(filepath, wait=False, loops=1)
 
 def stop_bird_song():
     """鳥の声を停止"""
@@ -210,7 +211,7 @@ def speak(text, index=None):
         print(f"⚠️ 音声未ロード: {sound_key}")
 
 
-def play_audio_file(filepath, wait=False):
+def play_audio_file(filepath, wait=False, loops=0):
     """汎用音声ファイル再生（wavはpygameで再生）"""
     if not os.path.exists(filepath):
         print(f"⚠️ ファイルが見つかりません: {filepath}")
@@ -220,7 +221,7 @@ def play_audio_file(filepath, wait=False):
         # wavファイルはpygameで再生
         if filepath.endswith('.wav'):
             sound = pygame.mixer.Sound(filepath)
-            sound.play()
+            sound.play(loops=loops)
             if wait:
                 # 再生終了まで待機
                 while pygame.mixer.get_busy():
@@ -995,14 +996,10 @@ def main():
                             daemon=True
                         ).start()
 
-                    # ボタン3（予備）
+                    # ボタン3（音量UP & 再起動）
                     elif key.keycode == 'KEY_DOWN':
                         button3_press_time = time.time()
-                        print("\n⚙️ ボタン3 押下開始\n")
-
-                    # ボタン4（音量UP）
-                    elif key.keycode == 'KEY_RIGHT':
-                        print("\n🔊 音量UP開始\n")
+                        print("\n🔊 音量UP開始 (兼 ボタン3)\n")
                         volume_adjusting = True
                         threading.Thread(
                             target=adjust_volume_loop,
@@ -1010,16 +1007,26 @@ def main():
                             daemon=True
                         ).start()
 
+                    # ボタン4（音量UP - 故障中につき無効化検討）
+                    elif key.keycode == 'KEY_RIGHT':
+                        print("\n⚠️ ボタン4は故障中です\n")
+                        # volume_adjusting = True
+                        # threading.Thread(
+                        #     target=adjust_volume_loop,
+                        #     args=("up",),
+                        #     daemon=True
+                        # ).start()
+
                 # キーを離した時（value == 0）
                 elif event.value == 0:
-                    # ボタン2または4を離した = 音量調整停止
-                    if key.keycode in ['KEY_LEFT', 'KEY_RIGHT']:
+                    # ボタン3または4を離した = 音量調整停止
+                    if key.keycode in ['KEY_LEFT', 'KEY_RIGHT', 'KEY_DOWN']:
                         volume_adjusting = False
                         print(f"\n音量調整完了: {current_volume}%\n")
 
 
                     # ボタン3を離した = 長押しチェック
-                    elif key.keycode == 'KEY_DOWN':
+                    if key.keycode == 'KEY_DOWN':
                         if button3_press_time > 0:
                             press_duration = time.time() - button3_press_time
                             if press_duration >= 5.0:
