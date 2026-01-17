@@ -545,23 +545,23 @@ def transcribe_and_post():
     # バックグラウンドで投稿
     def post_in_background():
         try:
-            response = requests.post(
-                'https://alexa-blog-poster.onrender.com',
-                json={
-                    'text': blog_content,
-                    'timestamp': datetime.now(timezone.utc).isoformat()
-                },
-                headers={'Content-Type': 'application/json; charset=utf-8'},
-                timeout=120
+            # blog_poster.py の post_blog 関数を使用
+            # これにより自動的にMEGAアップロードが行われる
+            success = post_blog(
+                title="", # 自動生成されるので空でOK
+                body=blog_content,
+                audio_file_path=blog_audio_file,
+                verbose=True
             )
 
-            if response.status_code == 200:
-                print("\n✅ ブログ投稿成功\n")
+            if success:
+                print("\n✅ ブログ投稿成功（音声アップロード含む）\n")
             else:
-                print(f"\n❌ ブログ投稿失敗: {response.status_code}\n")
+                print("\n❌ ブログ投稿失敗\n")
 
         except Exception as e:
             print(f"\n❌ エラー: {e}\n")
+
 
     thread = threading.Thread(target=post_in_background, daemon=True)
     thread.start()
