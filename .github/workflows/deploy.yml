@@ -1,0 +1,27 @@
+name: Deploy to Pi3
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Sync files
+        run: |
+          rsync -av --exclude '.git' --exclude '.env' --exclude 'actions-runner' ./ /home/yasutoshi/projects/06.mini_keyboard/
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip3 install -r requirements.txt
+          fi
+
+      - name: Restart Service
+        run: sudo systemctl restart mukashimukashi.service
