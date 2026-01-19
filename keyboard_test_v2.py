@@ -30,6 +30,7 @@ print(f"🎤 マイク: hw:{MIC_CARD},0")
 
 
 
+
 # ========== 設定 ==========
 AUDIO_DIR = "/home/yasutoshi/projects/06.mini_keyboard/audio"
 MUKASHIMUKASHI_DIR = "/home/yasutoshi/projects/06.mini_keyboard/mukashimukashi"
