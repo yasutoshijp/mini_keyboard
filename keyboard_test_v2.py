@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 import evdev
 import pygame
@@ -9,7 +8,7 @@ import subprocess
 import threading
 import requests
 import json
-
+import select
 
 
 
@@ -926,15 +925,17 @@ def main():
         # 前回のチェック時刻
         last_timeout_check = time.time()
 
-        for event in keyboard.read_loop():
-            # タイムアウトチェック（0.1秒ごと）
+        while True:
+            # 0.1秒タイムアウトで入力を待つ
+            # タイムアウト時も空リストが返るので、処理は継続してタイムアウト判定を行う
+            r, w, x = select.select([keyboard.fd], [], [], 0.1)
+
+            # タイムアウトチェック（ループ毎に実行）
             current_time = time.time()
             if current_time - last_timeout_check > 0.1:
                 last_timeout_check = current_time
 
-
                 # blog_confirm モードのタイムアウト（5秒）
-
                 if mode == "blog_confirm" and blog_confirm_start_time > 0:
                     if current_time - blog_confirm_start_time > 20:
                         print("\n⏱️ タイムアウト: キャンセルします\n")
@@ -969,10 +970,6 @@ def main():
                         # メニュー名を読み上げ（復帰確認）
                         speak(menu_items[current_menu], index=current_menu)
 
-
-
-
-
                 # blog_recording モードの自動停止（60秒）
                 if mode == "blog_recording" and blog_recording_process:
                     if blog_recording_process.poll() is not None:
@@ -995,88 +992,89 @@ def main():
                         else:
                             mode = "fan_message_menu"
 
+            # イベント処理
+            if r:
+                for event in keyboard.read():
+                    if event.type == evdev.ecodes.EV_KEY:
+
+                        key = evdev.categorize(event)
+
+                        # キー押下時（value == 1）
+                        if event.value == 1:
+                            # ノブ右回転
+                            if key.keycode == 'KEY_VOLUMEUP':
+                                handle_rotate(1)
+
+                            # ノブ左回転
+                            elif key.keycode == 'KEY_VOLUMEDOWN':
+                                handle_rotate(-1)
+
+                            # ノブ押下（決定）
+                            elif 'KEY_MUTE' in str(key.keycode):
+                                handle_button_press()
+
+                            # ボタン1（戻る）
+                            elif key.keycode == 'KEY_UP':
+                                handle_back_button()
+
+                            # ボタン2（音量DOWN）
+                            elif key.keycode == 'KEY_LEFT':
+                                print("\n🔉 音量DOWN開始\n")
+                                volume_adjusting = True
+                                threading.Thread(
+                                    target=adjust_volume_loop,
+                                    args=("down",),
+                                    daemon=True
+                                ).start()
+
+                            # ボタン3（音量UP & 再起動）
+                            elif key.keycode == 'KEY_DOWN':
+                                button3_press_time = time.time()
+                                print("\n🔊 音量UP開始 (兼 ボタン3)\n")
+                                volume_adjusting = True
+                                threading.Thread(
+                                    target=adjust_volume_loop,
+                                    args=("up",),
+                                    daemon=True
+                                ).start()
+
+                            # ボタン4（音量UP - 故障中につき無効化検討）
+                            elif key.keycode == 'KEY_RIGHT':
+                                print("\n⚠️ ボタン4は故障中です\n")
+                                # volume_adjusting = True
+                                # threading.Thread(
+                                #     target=adjust_volume_loop,
+                                #     args=("up",),
+                                #     daemon=True
+                                # ).start()
+
+                        # キーを離した時（value == 0）
+                        elif event.value == 0:
+                            # ボタン3または4を離した = 音量調整停止
+                            if key.keycode in ['KEY_LEFT', 'KEY_RIGHT', 'KEY_DOWN']:
+                                volume_adjusting = False
+                                print(f"\n音量調整完了: {current_volume}%\n")
 
 
-            if event.type == evdev.ecodes.EV_KEY:
+                            # ボタン3を離した = 長押しチェック
+                            if key.keycode == 'KEY_DOWN':
+                                if button3_press_time > 0:
+                                    press_duration = time.time() - button3_press_time
+                                    if press_duration >= 5.0:
+                                        print("\n🔄 5秒長押し検出！再起動します...\n")
 
-                key = evdev.categorize(event)
+                                        # 「再起動します」音声
+                                        if 'reboot' in sounds:
+                                            sounds['reboot'].play()
+                                            time.sleep(2.0)  # 音声の長さ分待つ
 
-                # キー押下時（value == 1）
-                if event.value == 1:
-                    # ノブ右回転
-                    if key.keycode == 'KEY_VOLUMEUP':
-                        handle_rotate(1)
-
-                    # ノブ左回転
-                    elif key.keycode == 'KEY_VOLUMEDOWN':
-                        handle_rotate(-1)
-
-                    # ノブ押下（決定）
-                    elif 'KEY_MUTE' in str(key.keycode):
-                        handle_button_press()
-
-                    # ボタン1（戻る）
-                    elif key.keycode == 'KEY_UP':
-                        handle_back_button()
-
-                    # ボタン2（音量DOWN）
-                    elif key.keycode == 'KEY_LEFT':
-                        print("\n🔉 音量DOWN開始\n")
-                        volume_adjusting = True
-                        threading.Thread(
-                            target=adjust_volume_loop,
-                            args=("down",),
-                            daemon=True
-                        ).start()
-
-                    # ボタン3（音量UP & 再起動）
-                    elif key.keycode == 'KEY_DOWN':
-                        button3_press_time = time.time()
-                        print("\n🔊 音量UP開始 (兼 ボタン3)\n")
-                        volume_adjusting = True
-                        threading.Thread(
-                            target=adjust_volume_loop,
-                            args=("up",),
-                            daemon=True
-                        ).start()
-
-                    # ボタン4（音量UP - 故障中につき無効化検討）
-                    elif key.keycode == 'KEY_RIGHT':
-                        print("\n⚠️ ボタン4は故障中です\n")
-                        # volume_adjusting = True
-                        # threading.Thread(
-                        #     target=adjust_volume_loop,
-                        #     args=("up",),
-                        #     daemon=True
-                        # ).start()
-
-                # キーを離した時（value == 0）
-                elif event.value == 0:
-                    # ボタン3または4を離した = 音量調整停止
-                    if key.keycode in ['KEY_LEFT', 'KEY_RIGHT', 'KEY_DOWN']:
-                        volume_adjusting = False
-                        print(f"\n音量調整完了: {current_volume}%\n")
-
-
-                    # ボタン3を離した = 長押しチェック
-                    if key.keycode == 'KEY_DOWN':
-                        if button3_press_time > 0:
-                            press_duration = time.time() - button3_press_time
-                            if press_duration >= 5.0:
-                                print("\n🔄 5秒長押し検出！再起動します...\n")
-
-                                # 「再起動します」音声
-                                if 'reboot' in sounds:
-                                    sounds['reboot'].play()
-                                    time.sleep(2.0)  # 音声の長さ分待つ
-
-                                if 'beep' in sounds:
-                                    sounds['beep'].play()
-                                    time.sleep(0.3)
-                                subprocess.run(['sudo', 'reboot'])
-                            else:
-                                print(f"\n⚙️ ボタン3 ({press_duration:.1f}秒)\n")
-                            button3_press_time = 0
+                                        if 'beep' in sounds:
+                                            sounds['beep'].play()
+                                            time.sleep(0.3)
+                                        subprocess.run(['sudo', 'reboot'])
+                                    else:
+                                        print(f"\n⚙️ ボタン3 ({press_duration:.1f}秒)\n")
+                                    button3_press_time = 0
 
     except KeyboardInterrupt:
         print("\n終了")
