@@ -99,6 +99,10 @@ button3_press_time = 0  # ← 追加
 volume_adjusting = False
 current_volume = 70
 
+# ブログ準備モードタイムアウト用
+blog_ready_start_time = 0
+
+
 # pygame初期化
 pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
 
@@ -134,6 +138,7 @@ def load_sounds():
         'message_loading': f'{AUDIO_DIR}/message_loading.wav',      # ← 追加
         'preparing_audio': f'{AUDIO_DIR}/preparing_audio.wav',      # ← 追加
         'recording_start': f'{AUDIO_DIR}/recording_start.wav',
+        'modorimasu': f'{AUDIO_DIR}/modorimasu.wav',      # ← 追加
     }
 
 
@@ -579,6 +584,11 @@ def do_blog_post():
         sounds['blog_ready'].play()
 
     mode = "blog_ready"
+    
+    # タイムアウト計測開始（3分）
+    global blog_ready_start_time
+    blog_ready_start_time = time.time()
+
 
 
 # ========== 音量調整 ==========
@@ -821,6 +831,7 @@ def handle_back_button():
         if 'blog_cancel' in sounds:
             sounds['blog_cancel'].play()
         mode = "main_menu"
+        blog_ready_start_time = 0 # タイマーリセット
         speak(menu_items[current_menu], index=current_menu)
 
     #elif mode == "blog_recording":
@@ -868,7 +879,8 @@ def handle_back_button():
 
 # ========== メイン処理 ==========
 def main():
-    global current_menu, knob_counter, volume_adjusting, mode, blog_confirm_start_time, blog_recording_process, last_action_time, button3_press_time, fan_message_index
+    global current_menu, knob_counter, volume_adjusting, mode, blog_confirm_start_time, blog_recording_process, last_action_time, button3_press_time, fan_message_index, blog_ready_start_time
+
     
     # 音声事前ロード
     print("音声ファイルをロード中...")
@@ -937,6 +949,27 @@ def main():
 
                         # タイムアウト後、2秒間ボタンを無視
                         last_action_time = time.time()
+
+                # blog_ready モードのタイムアウト（3分 = 180秒）
+                if mode == "blog_ready" and blog_ready_start_time > 0:
+                    if current_time - blog_ready_start_time > 180:
+                        print("\n⏱️ タイムアウト: メインメニューに戻ります\n")
+                        
+                        # 「戻ります」または「戻る」音声
+                        if 'modorimasu' in sounds:
+                            sounds['modorimasu'].play()
+                            time.sleep(1.5) # 音声の長さ分待つ（概算）
+                        elif 'modoru' in sounds:
+                            sounds['modoru'].play()
+                            time.sleep(0.5)
+
+                        mode = "main_menu"
+                        blog_ready_start_time = 0
+                        
+                        # メニュー名を読み上げ（復帰確認）
+                        speak(menu_items[current_menu], index=current_menu)
+
+
 
 
 
