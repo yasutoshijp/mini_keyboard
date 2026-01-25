@@ -189,7 +189,7 @@ def play_bird_song_content(index):
         print(f"🎵 鳴き声再生 (2回連続): {bird['name']} ({bird['memo']})")
         mode = "playing_bird_song"
         # 全ての鳥の鳴き声を一律 2回再生（loops=1）にする
-        play_audio_file(filepath, wait=False, loops=1)
+        play_audio_file(filepath, wait=False, loops=1, on_finish=stop_bird_song)
 
 def stop_bird_song():
     """鳥の声を停止"""
@@ -214,7 +214,7 @@ class SequentialAudioManager:
             if item is None: break
             
             # 再生開始
-            item_type, data, wait, loops = item
+            item_type, data, wait, loops, on_finish = item
             print(f"🎬 再生開始 (Queue): {item_type}")
             
             try:
@@ -265,9 +265,17 @@ class SequentialAudioManager:
             
             # 再生後の間隔
             time.sleep(0.2)
+            
+            # 完了時コールバックの実行
+            if on_finish and not self.stop_requested:
+                try:
+                    on_finish()
+                except Exception as e:
+                    print(f"❌ 完了コールバックエラー: {e}")
+            
             self.queue.task_done()
 
-    def play(self, item_type, data, wait=False, loops=0, urgent=False):
+    def play(self, item_type, data, wait=False, loops=0, urgent=False, on_finish=None):
         """
         音声をキューに追加。
         urgent=True の場合は現在の再生を止めて即座にキューに追加。
@@ -283,7 +291,7 @@ class SequentialAudioManager:
             except queue.Empty:
                 break
         
-        self.queue.put((item_type, data, wait, loops))
+        self.queue.put((item_type, data, wait, loops, on_finish))
 
     def stop_immediately(self):
         """現在の再生を強制停止し、キューも空にする"""
@@ -326,17 +334,17 @@ def speak(text, index=None):
         print(f"⚠️ 音声未ロード: {sound_key}")
 
 
-def play_audio_file(filepath, wait=False, loops=0):
+def play_audio_file(filepath, wait=False, loops=0, on_finish=None):
     """汎用音声ファイル再生 - キュー方式"""
     if not os.path.exists(filepath):
         print(f"⚠️ ファイルが見つかりません: {filepath}")
         return False
-    audio_mgr.play("file", filepath, wait=wait, loops=loops)
+    audio_mgr.play("file", filepath, wait=wait, loops=loops, on_finish=on_finish)
     return True
 
-def play_audio_url(url, wait=False):
+def play_audio_url(url, wait=False, on_finish=None):
     """URLから直接音声をストリーミング再生 - キュー方式"""
-    audio_mgr.play("url", url, wait=wait)
+    audio_mgr.play("url", url, wait=wait, on_finish=on_finish)
     return True
 
 
@@ -433,7 +441,7 @@ def play_fan_message_content(index):
             print(f"⚠️ メッセージ本文の生成に失敗しました: {e}")
     
     if message_file.exists():
-        play_audio_file(str(message_file))
+        play_audio_file(str(message_file), on_finish=stop_fan_message)
     else:
         print(f"⚠️ メッセージファイルが見つかりません: {message_file}")
         mode = "fan_message_menu"
@@ -619,7 +627,7 @@ def play_story(index):
     url = AUDIO_BASE_URL + filename
     print(f"▶️  物語を再生: {get_title_from_filename(filename)}")
     mode = "playing_story"
-    play_audio_url(url)
+    play_audio_url(url, on_finish=stop_story)
 
 def stop_story():
     """物語の再生を停止"""
