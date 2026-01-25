@@ -385,6 +385,16 @@ def play_fan_message_name(index):
     # ファイルパスを生成してキューへ
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
     name_file = f"/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/names/{ts}_{name}.wav"
+    
+    # 【追加】ファイルがなければその場で生成（セルフヒーリング）
+    if not os.path.exists(name_file):
+        try:
+            print(f"✨ 案内音声をオンデマンド生成中: {name}")
+            from fan_messages import generate_message_audio
+            generate_message_audio(message)
+        except Exception as e:
+            print(f"⚠️ 案内音声の生成に失敗しました: {e}")
+    
     play_audio_file(name_file)
 
 
@@ -410,6 +420,15 @@ def play_fan_message_content(index):
     MESSAGES_DIR = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/messages")
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
     message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
+    
+    # 【追加】ファイルがなければその場で生成（セルフヒーリング）
+    if not message_file.exists():
+        try:
+            print(f"✨ メッセージ本文をオンデマンド生成中: {name}")
+            from fan_messages import generate_message_audio
+            generate_message_audio(message)
+        except Exception as e:
+            print(f"⚠️ メッセージ本文の生成に失敗しました: {e}")
     
     if message_file.exists():
         play_audio_file(str(message_file))
