@@ -610,6 +610,13 @@ def play_title(index):
     if os.path.exists(title_audio_path):
         play_audio_file(title_audio_path)
 
+def play_story(index):
+    """物語を再生（ストリーミング） - キュー方式"""
+    global mode
+    if index < 0 or index >= len(mukashimukashi_files):
+        return
+    filename = mukashimukashi_files[index]
+    url = AUDIO_BASE_URL + filename
     print(f"▶️  物語を再生: {get_title_from_filename(filename)}")
     mode = "playing_story"
     play_audio_url(url)
