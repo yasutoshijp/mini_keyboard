@@ -197,9 +197,32 @@ def stop_bird_song():
     pygame.mixer.stop()
     mode = "bird_song_menu"
 
+def stop_all_audio():
+    """再生中の全ての音声を停止し、0.2秒待機する"""
+    global ffplay_process
+    
+    # pygame音声を停止
+    pygame.mixer.stop()
+    
+    # ffplayプロセス（ストリーミング）を停止
+    if ffplay_process:
+        try:
+            ffplay_process.terminate()
+            ffplay_process.wait(timeout=0.5)
+        except:
+            pass
+        ffplay_process = None
+    
+    # 少し待機して音が重なるのを防ぐ
+    time.sleep(0.2)
+
+
 def speak(text, index=None):
-    """音声再生"""
+    """音声再生（メニュー読み上げ等）"""
     print(f"🔊 {text}")
+
+    # 既存の音を止めて間隔を空ける
+    stop_all_audio()
 
     # 対応する音声を再生
     if index is not None:
@@ -223,6 +246,9 @@ def play_audio_file(filepath, wait=False, loops=0):
     if not os.path.exists(filepath):
         print(f"⚠️ ファイルが見つかりません: {filepath}")
         return False
+
+    # 既存の音を止めて間隔を空ける
+    stop_all_audio()
 
     try:
         # wavファイルはpygameで再生
@@ -306,6 +332,9 @@ def play_fan_message_name(index):
     timestamp = message['timestamp']
     print(f"💌 [{index + 1}/{len(fan_messages)}] {name}さん")
     
+    # 既存の音を止めて間隔を空ける
+    stop_all_audio()
+
     # キャッシュから再生
     from fan_messages import play_message_name
     play_message_name(timestamp, name)
@@ -335,6 +364,9 @@ def play_fan_message_content(index):
     message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
     
     if message_file.exists():
+        # 既存の音を止めて間隔を空ける
+        stop_all_audio()
+        
         import pygame
         sound = pygame.mixer.Sound(str(message_file))
         sound.play()
@@ -453,7 +485,9 @@ class NotificationManager:
             print(f"✨ 新着検知: {latest_id}")
             # 音声生成
             generate_message_audio(latest_msg)
-            # 通知再生
+            
+            # 通知再生（既存の音を止める）
+            stop_all_audio()
             if 'fan_message_arrival' in sounds:
                 sounds['fan_message_arrival'].play()
             
@@ -472,6 +506,9 @@ class NotificationManager:
             # 未読確認
             if self.last_notified_id != self.last_played_id:
                 print(f"⏰ 定時リマインド ({now.hour}時)")
+                
+                # リマインド再生（既存の音を止める）
+                stop_all_audio()
                 if 'fan_message_reminder' in sounds:
                     sounds['fan_message_reminder'].play()
             
@@ -565,6 +602,9 @@ def play_story(index):
 def play_audio_url(url, wait=False):
     """URLから直接音声をストリーミング再生"""
     global ffplay_process
+
+    # 既存の音を止めて間隔を空ける
+    stop_all_audio()
 
     try:
         from urllib.parse import quote
@@ -711,7 +751,8 @@ def do_blog_post():
 
     print("\n📝 ブログ投稿モード開始\n")
 
-    # 音声案内
+    # 音声案内（既存の音を止める）
+    stop_all_audio()
     if 'blog_ready' in sounds:
         sounds['blog_ready'].play()
 
@@ -823,6 +864,9 @@ def handle_button_press():
     if mode == "main_menu":
         selected = menu_items[current_menu]
         print(f"\n✅ 決定: {selected}\n")
+        
+        # 既存の音を止めて間隔を空ける
+        stop_all_audio()
         speak("決定")
 
         # 「決定」音声が終わるまで待機
@@ -868,6 +912,7 @@ def handle_button_press():
         print(f"\n✅ メッセージを再生開始\n")
 
         # 「再生します」音声
+        stop_all_audio()
         if 'saisei' in sounds:
             sounds['saisei'].play()
             time.sleep(1.4)
@@ -878,6 +923,7 @@ def handle_button_press():
         print(f"\n✅ 物語を再生開始\n")
 
         # 「再生します」音声
+        stop_all_audio()
         if 'saisei' in sounds:
             sounds['saisei'].play()
             time.sleep(1.4)  # 音声の長さ分待つ
@@ -887,6 +933,7 @@ def handle_button_press():
 
     elif mode == "bird_song_menu":
         print(f"\n✅ 鳥の声を再生開始\n")
+        stop_all_audio()
         if 'saisei' in sounds:
             sounds['saisei'].play()
             time.sleep(1.4)
@@ -959,7 +1006,8 @@ def handle_back_button():
         speak("戻る")
 
     elif mode == "blog_ready":
-        # ブログ投稿をキャンセル
+        # ブログ投稿をキャンセル（既存の音を止める）
+        stop_all_audio()
         if 'blog_cancel' in sounds:
             sounds['blog_cancel'].play()
         mode = "main_menu"
@@ -974,6 +1022,8 @@ def handle_back_button():
         # 録音停止 → 投稿
         stop_blog_recording()
 
+        # 音声を再生（既存の音を止める）
+        stop_all_audio()
         if 'blog_posted' in sounds:
             sounds['blog_posted'].play()
 
