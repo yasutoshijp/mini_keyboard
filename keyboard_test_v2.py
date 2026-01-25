@@ -293,7 +293,9 @@ class SequentialAudioManager:
         
         # 実行中の停止指示
         self.stop_requested = True
-        pygame.mixer.stop()
+        if pygame.mixer.get_init():
+            pygame.mixer.stop()
+            
         if self.current_process:
             try:
                 self.current_process.terminate()
@@ -935,14 +937,17 @@ def handle_back_button():
 
     if mode == "playing_message":
         audio_mgr.stop_immediately()
+        mode = "fan_message_menu"
         speak("戻る")
 
     elif mode == "playing_story":
         audio_mgr.stop_immediately()
+        mode = "mukashimukashi_menu"
         speak("戻る")
 
     elif mode == "playing_bird_song":
         audio_mgr.stop_immediately()
+        mode = "bird_song_menu"
         speak("戻る")
 
     elif mode == "blog_ready":
