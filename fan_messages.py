@@ -8,6 +8,8 @@ import requests
 import boto3
 import os
 import subprocess
+import struct
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -31,7 +33,7 @@ DEFAULT_ENGINE = "neural"
 SAMPLE_RATE = "16000"
 
 
-def get_fan_messages():
+def get_fan_messages(force_refresh=False):
     """ファンメッセージを取得（キャッシュ優先）"""
     import json
     from pathlib import Path
@@ -39,8 +41,8 @@ def get_fan_messages():
     # キャッシュファイルパス
     cache_file = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/messages.json")
     
-    # キャッシュがあれば、それを返す
-    if cache_file.exists():
+    # force_refresh が True でない場合はキャッシュを確認
+    if not force_refresh and cache_file.exists():
         try:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 messages = json.load(f)
@@ -49,12 +51,18 @@ def get_fan_messages():
         except Exception as e:
             print(f"⚠️ キャッシュ読み込みエラー: {e}")
     
-    # キャッシュがない場合のみAPIから取得
+    # APIから取得
     try:
         response = requests.get(MESSAGES_API_URL, timeout=10)
         response.raise_for_status()
         messages = response.json()
         print(f"✓ APIから{len(messages)}件取得")
+        
+        # 取得成功時はキャッシュを更新
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
+            
         return messages
     except Exception as e:
         print(f"⚠️ メッセージ取得エラー: {e}")
@@ -114,6 +122,80 @@ def play_message_content(timestamp: str, name: str):
     """メッセージ音声を再生（キャッシュから）"""
     # タイムスタンプからファイル名生成
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
+    message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
+    play_audio_from_cache(message_file)
+
+
+def mono_to_stereo_pcm(mono_pcm: bytes) -> bytes:
+    """モノラルPCMをステレオに変換"""
+    stereo_data = bytearray()
+    for i in range(0, len(mono_pcm), 2):
+        sample = mono_pcm[i:i+2]
+        stereo_data.extend(sample)
+        stereo_data.extend(sample)
+    return bytes(stereo_data)
+
+def make_wav_from_pcm(pcm_bytes: bytes, sample_rate: int = 16000, channels: int = 2) -> bytes:
+    """PCM -> WAV変換"""
+    byte_rate = sample_rate * channels * 2
+    block_align = channels * 2
+    data_size = len(pcm_bytes)
+    
+    header = b"RIFF"
+    header += struct.pack("<I", 36 + data_size)
+    header += b"WAVE"
+    header += b"fmt "
+    header += struct.pack("<I", 16)
+    header += struct.pack("<H", 1)
+    header += struct.pack("<H", channels)
+    header += struct.pack("<I", sample_rate)
+    header += struct.pack("<I", byte_rate)
+    header += struct.pack("<H", block_align)
+    header += struct.pack("<H", 16)
+    header += b"data"
+    header += struct.pack("<I", data_size)
+    
+    return header + pcm_bytes
+
+def generate_message_audio(msg):
+    """メッセージIDを指定して音声ファイルを生成（キャッシュディレクトリ保存）"""
+    from datetime import datetime
+    
+    name = msg['name']
+    timestamp_str = msg['timestamp']
+    message_text = msg['message']
+    
+    # タイムスタンプからファイル名用の文字列生成
+    ts = timestamp_str.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
+    
+    # タイムスタンプから日付を取得
+    if 'T' in timestamp_str or 'Z' in timestamp_str:
+        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+    else:
+        dt = datetime.strptime(timestamp_str, '%Y/%m/%d %H:%M:%S')
+    date_str = dt.strftime('%m月%d日')
+
+    # 名前音声
+    name_file = NAMES_DIR / f"{ts}_{name}.wav"
+    if not name_file.exists():
+        print(f"  生成中(名前): {name_file.name}")
+        pcm_mono = text_to_speech_polly(f"{date_str}、{name}さん")
+        wav_data = make_wav_from_pcm(mono_to_stereo_pcm(pcm_mono))
+        name_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(name_file, 'wb') as f:
+            f.write(wav_data)
+
+    # メッセージ音声
+    message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
+    if not message_file.exists():
+        print(f"  生成中(本文): {message_file.name}")
+        pcm_mono = text_to_speech_polly(message_text)
+        wav_data = make_wav_from_pcm(mono_to_stereo_pcm(pcm_mono))
+        message_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(message_file, 'wb') as f:
+            f.write(wav_data)
+    
+    return True
 
 
 

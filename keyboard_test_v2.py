@@ -9,12 +9,13 @@ import threading
 import requests
 import json
 import select
+from datetime import datetime
 
 
 
 
 # ★testtestファンメッセージモジュールをインポート
-from fan_messages import get_fan_messages
+from fan_messages import get_fan_messages, generate_message_audio, text_to_speech_polly, make_wav_from_pcm, mono_to_stereo_pcm
 
 # ブログ投稿モジュールをインポート
 from blog_poster import post_blog
@@ -138,6 +139,8 @@ def load_sounds():
         'preparing_audio': f'{AUDIO_DIR}/preparing_audio.wav',      # ← 追加
         'recording_start': f'{AUDIO_DIR}/recording_start.wav',
         'modorimasu': f'{AUDIO_DIR}/modorimasu.wav',      # ← 追加
+        'fan_message_arrival': f'{AUDIO_DIR}/fan_message_arrival.wav', # ← 追加
+        'fan_message_reminder': f'{AUDIO_DIR}/fan_message_reminder.wav', # ← 追加
     }
 
 
@@ -339,6 +342,10 @@ def play_fan_message_content(index):
     else:
         print(f"⚠️ メッセージファイルが見つかりません: {message_file}")
         mode = "fan_message_menu"
+    
+    # 既読更新
+    if notifier:
+        notifier.mark_as_played(timestamp, name)
 
 def stop_fan_message():
     """メッセージ再生を停止"""
@@ -353,6 +360,132 @@ def stop_fan_message():
     mode = "fan_message_menu"
 
 
+# ========== 通知・リマインド管理 ==========
+
+class NotificationManager:
+    STATE_FILE = "/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/notification_state.json"
+    
+    def __init__(self):
+        self.last_notified_id = ""
+        self.last_played_id = ""
+        self.last_poll_time = 0
+        self.last_reminder_hour = -1
+        self.load_state()
+
+    def load_state(self):
+        if os.path.exists(self.STATE_FILE):
+            try:
+                with open(self.STATE_FILE, 'r', encoding='utf-8') as f:
+                    state = json.load(f)
+                    self.last_notified_id = state.get("last_notified_id", "")
+                    self.last_played_id = state.get("last_played_id", "")
+                    print(f"🔔 通知状態をロード: notified={self.last_notified_id}, played={self.last_played_id}")
+            except Exception as e:
+                print(f"⚠️ 通知状態ロードエラー: {e}")
+
+    def save_state(self):
+        try:
+            os.makedirs(os.path.dirname(self.STATE_FILE), exist_ok=True)
+            with open(self.STATE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({
+                    "last_notified_id": self.last_notified_id,
+                    "last_played_id": self.last_played_id
+                }, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"⚠️ 通知状態保存エラー: {e}")
+
+    def get_msg_id(self, msg):
+        return f"{msg['timestamp']}_{msg['name']}"
+
+    def ensure_voices(self, paths):
+        """通知用音声がない場合に生成"""
+        # 1. 新着通知
+        arrival_file = paths['fan_message_arrival']
+        if not os.path.exists(arrival_file):
+            print("🔊 新着通知音を生成中...")
+            pcm = text_to_speech_polly("新しいブログファンメッセージがあります")
+            wav = make_wav_from_pcm(mono_to_stereo_pcm(pcm))
+            with open(arrival_file, 'wb') as f: f.write(wav)
+            sounds['fan_message_arrival'] = pygame.mixer.Sound(arrival_file)
+
+        # 2. リマインド通知
+        reminder_file = paths['fan_message_reminder']
+        if not os.path.exists(reminder_file):
+            print("🔊 リマインド音を生成中...")
+            pcm = text_to_speech_polly("まだ聞いていないメッセージがあります")
+            wav = make_wav_from_pcm(mono_to_stereo_pcm(pcm))
+            with open(reminder_file, 'wb') as f: f.write(wav)
+            sounds['fan_message_reminder'] = pygame.mixer.Sound(reminder_file)
+
+    def is_within_time_window(self):
+        now = datetime.now()
+        return 7 <= now.hour < 18
+
+    def check_notifications(self):
+        """10分おきの新着チェック"""
+        if not self.is_within_time_window():
+            return
+
+        now = time.time()
+        if now - self.last_poll_time < 600: # 10分
+            return
+        self.last_poll_time = now
+
+        print("🔍 新着メッセージをチェック中...")
+        msgs = get_fan_messages(force_refresh=True)
+        if not msgs:
+            return
+
+        # 最新メッセージを取得
+        latest_msg = sorted(msgs, key=lambda x: x['timestamp'], reverse=True)[0]
+        latest_id = self.get_msg_id(latest_msg)
+
+        # 初回起動時対策
+        if not self.last_notified_id:
+            print(f"ℹ️ 初回起動: ベースラインを {latest_id} に設定")
+            self.last_notified_id = latest_id
+            if not self.last_played_id:
+                self.last_played_id = latest_id
+            self.save_state()
+            return
+
+        if latest_id != self.last_notified_id:
+            print(f"✨ 新着検知: {latest_id}")
+            # 音声生成
+            generate_message_audio(latest_msg)
+            # 通知再生
+            if 'fan_message_arrival' in sounds:
+                sounds['fan_message_arrival'].play()
+            
+            self.last_notified_id = latest_id
+            self.save_state()
+
+    def check_reminders(self):
+        """定時リマインドチェック (8, 12, 16, 18時)"""
+        if not self.is_within_time_window():
+            return
+
+        now = datetime.now()
+        reminder_hours = [8, 12, 16, 18]
+        
+        if now.hour in reminder_hours and now.hour != self.last_reminder_hour:
+            # 未読確認
+            if self.last_notified_id != self.last_played_id:
+                print(f"⏰ 定時リマインド ({now.hour}時)")
+                if 'fan_message_reminder' in sounds:
+                    sounds['fan_message_reminder'].play()
+            
+            self.last_reminder_hour = now.hour
+
+    def mark_as_played(self, timestamp, name):
+        """再生完了時に更新"""
+        played_id = f"{timestamp}_{name}"
+        if played_id > self.last_played_id:
+            print(f"✅ 既読更新: {played_id}")
+            self.last_played_id = played_id
+            self.save_state()
+
+notifier = None
 
 
 # ========== むかしむかし機能 ==========
@@ -878,12 +1011,22 @@ def handle_back_button():
 
 # ========== メイン処理 ==========
 def main():
-    global current_menu, knob_counter, volume_adjusting, mode, blog_confirm_start_time, blog_recording_process, last_action_time, button3_press_time, fan_message_index, blog_ready_start_time
-
+    global current_menu, knob_counter, volume_adjusting, mode, blog_confirm_start_time, blog_recording_process, last_action_time, button3_press_time, fan_message_index, blog_ready_start_time, notifier, sounds_paths
     
+    # パス保持（NotificationManager用）
+    sounds_paths = {
+        'fan_message_arrival': f'{AUDIO_DIR}/fan_message_arrival.wav',
+        'fan_message_reminder': f'{AUDIO_DIR}/fan_message_reminder.wav'
+    }
+
     # 音声事前ロード
     print("音声ファイルをロード中...")
     load_sounds()
+    
+    # 通知マネージャー初期化
+    notifier = NotificationManager()
+    notifier.ensure_voices(sounds_paths) # 音声がなければ作成
+    
     print(f"{len(sounds)}個の音声ファイルをロードしました\n")
 
     # 初期音量設定
@@ -991,6 +1134,11 @@ def main():
                             mode = "bird_song_menu"
                         else:
                             mode = "fan_message_menu"
+
+                # 通知・リマインドチェック
+                if notifier:
+                    notifier.check_notifications()
+                    notifier.check_reminders()
 
             # イベント処理
             if r:
