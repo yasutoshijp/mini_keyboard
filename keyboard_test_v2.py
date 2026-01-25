@@ -610,16 +610,16 @@ def play_title(index):
     if os.path.exists(title_audio_path):
         play_audio_file(title_audio_path)
 
-def play_story(index):
-    """物語を再生（ストリーミング） - キュー方式"""
-    global mode
-    if index < 0 or index >= len(mukashimukashi_files):
-        return
-    filename = mukashimukashi_files[index]
-    url = AUDIO_BASE_URL + filename
     print(f"▶️  物語を再生: {get_title_from_filename(filename)}")
     mode = "playing_story"
     play_audio_url(url)
+
+def stop_story():
+    """物語の再生を停止"""
+    global mode
+    print("⏹️  物語を停止")
+    audio_mgr.stop_immediately()
+    mode = "mukashimukashi_menu"
 
 
 
@@ -893,6 +893,12 @@ def handle_button_press():
     elif mode == "playing_story":
         stop_story()
 
+    elif mode == "playing_message":
+        stop_fan_message()
+
+    elif mode == "playing_bird_song":
+        stop_bird_song()
+
     elif mode == "blog_ready":
         # 「録音開始」音声
         if 'recording_start' in sounds:
@@ -936,18 +942,15 @@ def handle_back_button():
     print("\n⬅️ 戻る\n")
 
     if mode == "playing_message":
-        audio_mgr.stop_immediately()
-        mode = "fan_message_menu"
+        stop_fan_message()
         speak("戻る")
 
     elif mode == "playing_story":
-        audio_mgr.stop_immediately()
-        mode = "mukashimukashi_menu"
+        stop_story()
         speak("戻る")
 
     elif mode == "playing_bird_song":
-        audio_mgr.stop_immediately()
-        mode = "bird_song_menu"
+        stop_bird_song()
         speak("戻る")
 
     elif mode == "blog_ready":
