@@ -9,6 +9,7 @@ import threading
 import requests
 import json
 import select
+import queue
 from datetime import datetime
 
 
@@ -194,37 +195,119 @@ def stop_bird_song():
     """鳥の声を停止"""
     global mode
     print("⏹️  鳥の声を停止")
-    pygame.mixer.stop()
+    audio_mgr.stop_immediately()
     mode = "bird_song_menu"
 
-def stop_all_audio():
-    """再生中の全ての音声を停止し、0.2秒待機する"""
-    global ffplay_process
-    
-    # pygame音声を停止
-    pygame.mixer.stop()
-    
-    # ffplayプロセス（ストリーミング）を停止
-    if ffplay_process:
-        try:
-            ffplay_process.terminate()
-            ffplay_process.wait(timeout=0.5)
-        except:
-            pass
-        ffplay_process = None
-    
-    # 少し待機して音が重なるのを防ぐ
-    time.sleep(0.2)
+
+class SequentialAudioManager:
+    """音声を順番に再生するマネージャー（最大待ち数2）"""
+    def __init__(self):
+        self.queue = queue.Queue(maxsize=10) # 内部的には余裕を持たせるが外部から制御
+        self.current_process = None
+        self.stop_requested = False
+        self.worker_thread = threading.Thread(target=self._worker, daemon=True)
+        self.worker_thread.start()
+
+    def _worker(self):
+        while True:
+            item = self.queue.get()
+            if item is None: break
+            
+            # 再生開始
+            item_type, data, wait, loops = item
+            print(f"🎬 再生開始 (Queue): {item_type}")
+            
+            try:
+                if item_type == "sound":
+                    data.play(loops=loops)
+                    # 再生終了を待つ
+                    while pygame.mixer.get_busy() and not self.stop_requested:
+                        time.sleep(0.05)
+                
+                elif item_type == "file":
+                    # wavはpygame、他はffplay
+                    if data.endswith('.wav'):
+                        sound = pygame.mixer.Sound(data)
+                        sound.play(loops=loops)
+                        while pygame.mixer.get_busy() and not self.stop_requested:
+                            time.sleep(0.05)
+                    else:
+                        env = os.environ.copy()
+                        env['SDL_AUDIODRIVER'] = 'alsa'
+                        env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
+                        self.current_process = subprocess.Popen(
+                            ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
+                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        )
+                        while self.current_process.poll() is None and not self.stop_requested:
+                            time.sleep(0.1)
+                
+                elif item_type == "url":
+                    pygame.mixer.quit() # ffplayのために一旦解放
+                    env = os.environ.copy()
+                    env['SDL_AUDIODRIVER'] = 'alsa'
+                    env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
+                    self.current_process = subprocess.Popen(
+                        ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
+                        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                    )
+                    while self.current_process.poll() is None and not self.stop_requested:
+                        time.sleep(0.1)
+                    pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
+
+            except Exception as e:
+                print(f"❌ 再生エラー: {e}")
+            
+            # 停止フラグを戻す
+            if self.stop_requested:
+                print("🛑 再生中断")
+                self.stop_requested = False
+            
+            # 再生後の間隔
+            time.sleep(0.2)
+            self.queue.task_done()
+
+    def play(self, item_type, data, wait=False, loops=0, urgent=False):
+        """
+        音声をキューに追加。
+        urgent=True の場合は現在の再生を止めて即座にキューに追加。
+        """
+        if urgent:
+            self.stop_immediately()
+
+        # キューの制限（「次」と「その次」の最大2つにする）
+        while self.queue.qsize() >= 2:
+            try:
+                self.queue.get_nowait()
+                self.queue.task_done()
+            except queue.Empty:
+                break
+        
+        self.queue.put((item_type, data, wait, loops))
+
+    def stop_immediately(self):
+        """現在の再生を強制停止し、キューも空にする"""
+        # キューを空にする
+        with self.queue.mutex:
+            self.queue.queue.clear()
+        
+        # 実行中の停止指示
+        self.stop_requested = True
+        pygame.mixer.stop()
+        if self.current_process:
+            try:
+                self.current_process.terminate()
+                self.current_process.wait(timeout=0.5)
+            except: pass
+            self.current_process = None
+
+audio_mgr = SequentialAudioManager()
 
 
 def speak(text, index=None):
-    """音声再生（メニュー読み上げ等）"""
+    """音声再生（メニュー読み上げ等） - キュー方式"""
     print(f"🔊 {text}")
 
-    # 既存の音を止めて間隔を空ける
-    stop_all_audio()
-
-    # 対応する音声を再生
     if index is not None:
         sound_key = f'menu_{index}'
     elif text == "決定":
@@ -236,55 +319,30 @@ def speak(text, index=None):
         return
 
     if sound_key in sounds:
-        sounds[sound_key].play()
+        audio_mgr.play("sound", sounds[sound_key])
     else:
         print(f"⚠️ 音声未ロード: {sound_key}")
 
 
 def play_audio_file(filepath, wait=False, loops=0):
-    """汎用音声ファイル再生（wavはpygameで再生）"""
+    """汎用音声ファイル再生 - キュー方式"""
     if not os.path.exists(filepath):
         print(f"⚠️ ファイルが見つかりません: {filepath}")
         return False
+    audio_mgr.play("file", filepath, wait=wait, loops=loops)
+    return True
 
-    # 既存の音を止めて間隔を空ける
-    stop_all_audio()
+def play_audio_url(url, wait=False):
+    """URLから直接音声をストリーミング再生 - キュー方式"""
+    audio_mgr.play("url", url, wait=wait)
+    return True
 
-    try:
-        # wavファイルはpygameで再生
-        if filepath.endswith('.wav'):
-            sound = pygame.mixer.Sound(filepath)
-            sound.play(loops=loops)
-            if wait:
-                # 再生終了まで待機
-                while pygame.mixer.get_busy():
-                    pygame.time.Clock().tick(10)
-            return True
-        else:
-            # m4aなどはffplayで再生
-            if wait:
-                subprocess.run(['ffplay', '-nodisp', '-autoexit', filepath],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-            else:
-                subprocess.Popen(['ffplay', '-nodisp', '-autoexit', filepath],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL)
-            return True
-    except Exception as e:
-        print(f"⚠️ 音声再生エラー: {e}")
-        return False
 
 # ========== ファンメッセージ機能 ==========
 
 def load_fan_messages():
     """ファンメッセージを取得"""
     global fan_messages
-    
-    ## 「メッセージを取得しています」音声
-    #if 'message_loading' in sounds:
-    #    sounds['message_loading'].play()
-    
     print("ファンメッセージを取得中...")
     
     try:
@@ -292,29 +350,21 @@ def load_fan_messages():
         if fan_messages_raw:
             # 新しい順にソート
             from datetime import datetime
-
-
             def parse_timestamp(msg):
                 ts = msg['timestamp']
                 try:
-                    # まずスラッシュ形式を試す（最新メッセージ用）
-                    if '/' in ts:
-                        return datetime.strptime(ts, '%Y/%m/%d %H:%M:%S')
-                    # ISO形式
+                    if '/' in ts: return datetime.strptime(ts, '%Y/%m/%d %H:%M:%S')
                     elif 'T' in ts or 'Z' in ts:
                         dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                         return dt.replace(tzinfo=None)
-                    else:
-                        return datetime.min  # パースできない場合は最古扱い
+                    else: return datetime.min
                 except Exception as e:
                     print(f"⚠️ タイムスタンプ解析エラー: {ts} - {e}")
                     return datetime.min
 
-
             fan_messages = sorted(fan_messages_raw, key=parse_timestamp, reverse=True)
             print(f"✓ {len(fan_messages)}件のメッセージを読み込みました\n")
             return True
-
         else:
             print("⚠️ メッセージがありません\n")
             return False
@@ -323,7 +373,7 @@ def load_fan_messages():
         return False
 
 def play_fan_message_name(index):
-    """送信者名を音声再生（キャッシュから）"""
+    """送信者名を音声再生（キャッシュから） - キュー方式"""
     if index < 0 or index >= len(fan_messages):
         return
     
@@ -332,16 +382,14 @@ def play_fan_message_name(index):
     timestamp = message['timestamp']
     print(f"💌 [{index + 1}/{len(fan_messages)}] {name}さん")
     
-    # 既存の音を止めて間隔を空ける
-    stop_all_audio()
-
-    # キャッシュから再生
-    from fan_messages import play_message_name
-    play_message_name(timestamp, name)
+    # ファイルパスを生成してキューへ
+    ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
+    name_file = f"/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/names/{ts}_{name}.wav"
+    play_audio_file(name_file)
 
 
 def play_fan_message_content(index):
-    """メッセージ本文を音声再生（キャッシュから）"""
+    """メッセージ本文を音声再生（キャッシュから） - キュー方式"""
     global mode
     
     if index < 0 or index >= len(fan_messages):
@@ -357,20 +405,14 @@ def play_fan_message_content(index):
     
     mode = "playing_message"
     
-    # キャッシュからファイルパスを取得して再生
+    # キャッシュからファイルをキューへ
     from pathlib import Path
     MESSAGES_DIR = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/messages")
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
     message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
     
     if message_file.exists():
-        # 既存の音を止めて間隔を空ける
-        stop_all_audio()
-        
-        import pygame
-        sound = pygame.mixer.Sound(str(message_file))
-        sound.play()
-        # Non-blocking: rely on main loop to revert mode
+        play_audio_file(str(message_file))
     else:
         print(f"⚠️ メッセージファイルが見つかりません: {message_file}")
         mode = "fan_message_menu"
@@ -382,13 +424,8 @@ def play_fan_message_content(index):
 def stop_fan_message():
     """メッセージ再生を停止"""
     global mode
-    
     print("⏹️  メッセージ再生を停止")
-    
-    # pygame音声を停止
-    import pygame
-    pygame.mixer.stop()
-    
+    audio_mgr.stop_immediately()
     mode = "fan_message_menu"
 
 
@@ -484,12 +521,12 @@ class NotificationManager:
         if latest_id != self.last_notified_id:
             print(f"✨ 新着検知: {latest_id}")
             # 音声生成
+            from fan_messages import generate_message_audio
             generate_message_audio(latest_msg)
             
-            # 通知再生（既存の音を止める）
-            stop_all_audio()
+            # 通知再生
             if 'fan_message_arrival' in sounds:
-                sounds['fan_message_arrival'].play()
+                audio_mgr.play("sound", sounds['fan_message_arrival'])
             
             self.last_notified_id = latest_id
             self.save_state()
@@ -506,11 +543,8 @@ class NotificationManager:
             # 未読確認
             if self.last_notified_id != self.last_played_id:
                 print(f"⏰ 定時リマインド ({now.hour}時)")
-                
-                # リマインド再生（既存の音を止める）
-                stop_all_audio()
                 if 'fan_message_reminder' in sounds:
-                    sounds['fan_message_reminder'].play()
+                    audio_mgr.play("sound", sounds['fan_message_reminder'])
             
             self.last_reminder_hour = now.hour
 
@@ -529,137 +563,42 @@ notifier = None
 def load_mukashimukashi_filelist():
     """GitHubからファイルリストを取得"""
     global mukashimukashi_files
-
     print("むかしむかしファイルリストを取得中...")
-
     try:
         response = requests.get(FILELIST_URL, timeout=10)
         response.raise_for_status()
-
-        # ファイルリストを取得（空行を除く）
         mukashimukashi_files = [line.strip() for line in response.text.split('\n') if line.strip()]
         print(f"✓ {len(mukashimukashi_files)}個の物語を読み込みました\n")
         return True
-
     except Exception as e:
         print(f"⚠️ ファイルリスト取得エラー: {e}\n")
         return False
 
 def get_title_from_filename(filename):
-    """ファイル名からタイトルを取得（拡張子を除く）"""
     return os.path.splitext(filename)[0]
 
 
 def play_title(index):
-    """タイトル音声を再生"""
+    """タイトル音声を再生 - キュー方式"""
     if index < 0 or index >= len(mukashimukashi_files):
         return
-
     filename = mukashimukashi_files[index]
     title = get_title_from_filename(filename)
     print(f"📖 [{index + 1}/{len(mukashimukashi_files)}] {title}")
-
-    # タイトル音声ファイルのパス
     title_audio_path = os.path.join(TITLES_DIR, f"{title}.wav")
-
-    # デバッグ出力を追加
-    print(f"   探しているパス: {title_audio_path}")
-    print(f"   ファイル存在: {os.path.exists(title_audio_path)}")
-
     if os.path.exists(title_audio_path):
-        print(f"   再生開始...")
-        play_audio_file(title_audio_path, wait=True)
-        print(f"   再生完了")
-    else:
-        # タイトル音声がない場合は、テキスト読み上げで代替
-        # （Pollyスクリプトがある場合）
-        print(f"   タイトル音声なし（テキスト表示のみ）")
-
+        play_audio_file(title_audio_path)
 
 def play_story(index):
-    """物語を再生（完全ストリーミング）"""
+    """物語を再生（ストリーミング） - キュー方式"""
     global mode
-
     if index < 0 or index >= len(mukashimukashi_files):
         return
-
     filename = mukashimukashi_files[index]
     url = AUDIO_BASE_URL + filename
-
-    # URLから直接ストリーミング再生
     print(f"▶️  物語を再生: {get_title_from_filename(filename)}")
-    print(f"    URL: {url}")
     mode = "playing_story"
-
-    # バックグラウンドで再生（wait=Falseで即座にreturn）
-    play_audio_url(url, wait=False)
-
-    # すぐにreturnするので、再生終了は検知しない
-    # 再生中はmodeが"playing_story"のままなので、ボタンで停止可能
-
-
-
-def play_audio_url(url, wait=False):
-    """URLから直接音声をストリーミング再生"""
-    global ffplay_process
-
-    # 既存の音を止めて間隔を空ける
-    stop_all_audio()
-
-    try:
-        from urllib.parse import quote
-        if '://' in url:
-            protocol, rest = url.split('://', 1)
-            if '/' in rest:
-                domain, path = rest.split('/', 1)
-                encoded_url = f"{protocol}://{domain}/{quote(path)}"
-            else:
-                encoded_url = url
-        else:
-            encoded_url = quote(url)
-
-        print(f"🌐 ストリーミング再生: {encoded_url}")
-
-        # pygameを停止してオーディオデバイスを解放
-        pygame.mixer.quit()
-
-
-
-
-        # 環境変数設定
-        env = os.environ.copy()
-        env['SDL_AUDIODRIVER'] = 'alsa'
-        env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
-
-        # Popenでバックグラウンド再生
-        ffplay_process = subprocess.Popen(
-            ['ffplay', '-nodisp', '-autoexit', '-af', f'aformat=sample_fmts=s16:sample_rates=48000', encoded_url],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-
-        return True
-    except Exception as e:
-        print(f"⚠️ ストリーミング再生エラー: {e}")
-        return False
-
-def stop_story():
-    """物語の再生を停止"""
-    global mode, ffplay_process
-
-    print("⏹️  再生を停止")
-
-    # ffplayプロセスを終了
-    if ffplay_process:
-        ffplay_process.terminate()
-        ffplay_process.wait()
-        ffplay_process = None
-
-    # pygameを再初期化
-    pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
-
-    mode = "mukashimukashi_menu"
+    play_audio_url(url)
 
 
 
@@ -751,10 +690,9 @@ def do_blog_post():
 
     print("\n📝 ブログ投稿モード開始\n")
 
-    # 音声案内（既存の音を止める）
-    stop_all_audio()
+    # 音声案内（新モード入り口なので現在再生中を止める）
     if 'blog_ready' in sounds:
-        sounds['blog_ready'].play()
+        audio_mgr.play("sound", sounds['blog_ready'], urgent=True)
 
     mode = "blog_ready"
     
@@ -865,8 +803,7 @@ def handle_button_press():
         selected = menu_items[current_menu]
         print(f"\n✅ 決定: {selected}\n")
         
-        # 既存の音を止めて間隔を空ける
-        stop_all_audio()
+        # 決定時は即座に「決定」と言いたい
         speak("決定")
 
         # 「決定」音声が終わるまで待機
@@ -874,11 +811,9 @@ def handle_button_press():
 
 
         if selected == "ブログファンからメッセージ":
-            # if not fan_messages:  <-- この行を削除またはコメントアウト
             # 毎回ロードを実行する
             if not load_fan_messages():
                 print("メッセージの取得に失敗しました")
-                # 失敗した場合はメニューに入らない方が安全なら return する
                 return
 
             mode = "fan_message_menu"
@@ -887,7 +822,6 @@ def handle_button_press():
 
 
         elif selected == "むかしむかし":
-
             if not mukashimukashi_files:
                 if not load_mukashimukashi_filelist():
                     print("ファイルリストの取得に失敗しました")
@@ -912,9 +846,8 @@ def handle_button_press():
         print(f"\n✅ メッセージを再生開始\n")
 
         # 「再生します」音声
-        stop_all_audio()
         if 'saisei' in sounds:
-            sounds['saisei'].play()
+            audio_mgr.play("sound", sounds['saisei'], urgent=True)
             time.sleep(1.4)
 
         play_fan_message_content(fan_message_index)
@@ -923,19 +856,16 @@ def handle_button_press():
         print(f"\n✅ 物語を再生開始\n")
 
         # 「再生します」音声
-        stop_all_audio()
         if 'saisei' in sounds:
-            sounds['saisei'].play()
+            audio_mgr.play("sound", sounds['saisei'], urgent=True)
             time.sleep(1.4)  # 音声の長さ分待つ
-
 
         play_story(mukashimukashi_index)
 
     elif mode == "bird_song_menu":
         print(f"\n✅ 鳥の声を再生開始\n")
-        stop_all_audio()
         if 'saisei' in sounds:
-            sounds['saisei'].play()
+            audio_mgr.play("sound", sounds['saisei'], urgent=True)
             time.sleep(1.4)
         play_bird_song_content(bird_song_index)
 
@@ -945,12 +875,12 @@ def handle_button_press():
     elif mode == "blog_ready":
         # 「録音開始」音声
         if 'recording_start' in sounds:
-            sounds['recording_start'].play()
-            time.sleep(1.0)  # 音声の長さ分待つ
+            audio_mgr.play("sound", sounds['recording_start'], urgent=True)
+            time.sleep(1.0) 
         
         # ビープ音
         if 'beep' in sounds:
-            sounds['beep'].play()
+            audio_mgr.play("sound", sounds['beep'])
             time.sleep(0.3)
 
         start_blog_recording()
@@ -961,25 +891,16 @@ def handle_button_press():
 
         # 「投稿を依頼しました」を再生
         if 'blog_posted' in sounds:
-            sounds['blog_posted'].play()
+            audio_mgr.play("sound", sounds['blog_posted'], urgent=True)
 
-        # メインメニューに戻る
         mode = "main_menu"
-
-        # バックグラウンドで音声認識と投稿
         transcribe_and_post()
 
     elif mode == "blog_confirm":
-        # 先に「投稿を依頼しました」を再生
         if 'blog_posted' in sounds:
-            sounds['blog_posted'].play()
-            ## 音声再生完了を待つ（約5秒）
-            #time.sleep(5.5)
+            audio_mgr.play("sound", sounds['blog_posted'], urgent=True)
 
-        # メインメニューに戻る
         mode = "main_menu"
-
-        # バックグラウンドで音声認識と投稿
         transcribe_and_post()
 
 
@@ -994,22 +915,22 @@ def handle_back_button():
     print("\n⬅️ 戻る\n")
 
     if mode == "playing_message":
-        stop_fan_message()
+        audio_mgr.stop_immediately()
         speak("戻る")
 
     elif mode == "playing_story":
-        stop_story()
+        audio_mgr.stop_immediately()
         speak("戻る")
 
     elif mode == "playing_bird_song":
-        stop_bird_song()
+        audio_mgr.stop_immediately()
         speak("戻る")
 
     elif mode == "blog_ready":
-        # ブログ投稿をキャンセル（既存の音を止める）
-        stop_all_audio()
+        # ブログ投稿をキャンセル（即座に止める）
+        audio_mgr.stop_immediately()
         if 'blog_cancel' in sounds:
-            sounds['blog_cancel'].play()
+            audio_mgr.play("sound", sounds['blog_cancel'])
         mode = "main_menu"
         blog_ready_start_time = 0 # タイマーリセット
         speak(menu_items[current_menu], index=current_menu)
@@ -1022,10 +943,9 @@ def handle_back_button():
         # 録音停止 → 投稿
         stop_blog_recording()
 
-        # 音声を再生（既存の音を止める）
-        stop_all_audio()
+        # 音声を再生（即座に）
         if 'blog_posted' in sounds:
-            sounds['blog_posted'].play()
+            audio_mgr.play("sound", sounds['blog_posted'], urgent=True)
 
         mode = "main_menu"
         transcribe_and_post()
