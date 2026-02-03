@@ -1,0 +1,22 @@
+[
+    {
+        "name": "聴く日本昔話",
+        "rss": "https://anchor.fm/s/2379d74c/podcast/rss",
+        "description": "プロのナレーターによる、桃太郎やカチカチ山などの定番昔話。音質が非常に良く聴きやすいです。"
+    },
+    {
+        "name": "肥後の民話（熊本弁）",
+        "rss": "https://rkkradio.podcast.sonicbowl.cloud/podcast/8ffe6fcc-6cdb-4569-a776-81186ed5f58b/rss",
+        "description": "以前エラーになったAnchorではなく、公式サイト(Sonicbowl)の正しいRSSです。"
+    },
+    {
+        "name": "NHKラジオニュース（テスト用）",
+        "rss": "https://www.nhk.or.jp/s-media/news/podcast/list/v1/all.xml",
+        "description": "【動作確認用】NHK公式なので最も接続が安定しています。まずはこれが鳴るか確認してください。"
+    },
+    {
+        "name": "朗読の世界",
+        "rss": "https://anchor.fm/s/1e626e38/podcast/rss",
+        "description": "宮沢賢治や芥川龍之介などの短編朗読。落ち着いた声で、就寝前にも適しています。"
+    }
+]
