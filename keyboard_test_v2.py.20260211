@@ -52,10 +52,8 @@ FILELIST_URL = "https://raw.githubusercontent.com/HisakoJP/mukashimukashi/main/f
 AUDIO_BASE_URL = "https://HisakoJP.github.io/mukashimukashi/"
 
 # オーディオデバイス指定
-# dmixを使うため、hw:X,Y ではなく plug:dmixed を明示的に使う(.asoundrc参照)
-# os.environ['AUDIODEV'] = f'hw:{SPEAKER_CARD},0' 
 os.environ['SDL_AUDIODRIVER'] = 'alsa'
-os.environ['AUDIODEV'] = 'plug:dmixed'
+os.environ['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
 
 
 
@@ -111,7 +109,7 @@ blog_ready_start_time = 0
 
 
 # pygame初期化
-pygame.mixer.init(frequency=48000, channels=2, buffer=4096)
+pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
 
 # 音声を事前ロード
 sounds = {}
@@ -244,9 +242,7 @@ class SequentialAudioManager:
                     else:
                         env = os.environ.copy()
                         env['SDL_AUDIODRIVER'] = 'alsa'
-                        # env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0' # dmixを使うためコメントアウト
-                        env['AUDIODEV'] = 'plug:dmixed'
-                        # ffplayにも明示的にデバイスを指定 (envで指定しているので -aoオプションは削除してSDLに任せる)
+                        env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
                         self.current_process = subprocess.Popen(
                             ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -255,21 +251,17 @@ class SequentialAudioManager:
                             time.sleep(0.1)
                 
                 elif item_type == "url":
-                    # pygame.mixer.quit() # ffplayのために一旦解放 (dmixなら不要)
-                    
+                    pygame.mixer.quit() # ffplayのために一旦解放
                     env = os.environ.copy()
                     env['SDL_AUDIODRIVER'] = 'alsa'
-                    # env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
-                    env['AUDIODEV'] = 'plug:dmixed'
-                    # ffplayにも明示的にデバイスを指定 (envで指定しているので -aoオプションは削除してSDLに任せる)
-                    # デバッグ用に stderr を表示する
+                    env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
                     self.current_process = subprocess.Popen(
                         ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
-                        env=env, stdout=subprocess.DEVNULL, stderr=None
+                        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                     )
                     while self.current_process.poll() is None and not self.stop_requested:
                         time.sleep(0.1)
-                    # pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
+                    pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
 
             except Exception as e:
                 print(f"❌ 再生エラー: {e}")
@@ -646,18 +638,14 @@ def handle_direction():
         # sound_filesの辞書キーと対応させる
         if sound_key in sounds:
             print(f"🧭 方角通知: {direction}")
-            # audio_mgr.play("sound", sounds[sound_key], urgent=True) # これだと止まってしまう
-            # 重ねて再生するために直接再生する
-            sounds[sound_key].play()
+            audio_mgr.play("sound", sounds[sound_key], urgent=True)
             return jsonify({"ok": True, "direction": direction})
         
         # ファイルから直接再生（ロードされていない場合のフォールバック）
         filepath = os.path.join(AUDIO_DIR, "direction", f"{direction}.wav")
         if os.path.exists(filepath):
             print(f"🧭 方角通知(ファイル): {direction}")
-            # audio_mgr.play("file", filepath, urgent=True)
-            # 直接再生
-            pygame.mixer.Sound(filepath).play()
+            audio_mgr.play("file", filepath, urgent=True)
             return jsonify({"ok": True, "direction": direction})
             
         return jsonify({"ok": False, "error": "Audio file not found"}), 404
@@ -1352,6 +1340,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
