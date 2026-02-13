@@ -70,7 +70,7 @@ def get_fan_messages(force_refresh=False):
 
 
 
-def text_to_speech_polly(text, voice=DEFAULT_VOICE, engine=DEFAULT_ENGINE, sample_rate=SAMPLE_RATE):
+def text_to_speech_polly(text, voice=DEFAULT_VOICE, engine=DEFAULT_ENGINE, sample_rate=SAMPLE_RATE, text_type="text"):
     """Amazon PollyでテキストをPCM音声に変換"""
     polly = boto3.client("polly", region_name=DEFAULT_REGION)
     
@@ -80,6 +80,7 @@ def text_to_speech_polly(text, voice=DEFAULT_VOICE, engine=DEFAULT_ENGINE, sampl
         Engine=engine,
         OutputFormat="pcm",
         SampleRate=sample_rate,
+        TextType=text_type
     )
     
     if "AudioStream" not in response:
@@ -126,11 +127,21 @@ def play_message_content(timestamp: str, name: str):
     play_audio_from_cache(message_file)
 
 
-def mono_to_stereo_pcm(mono_pcm: bytes) -> bytes:
-    """モノラルPCMをステレオに変換"""
+def mono_to_stereo_pcm(mono_pcm: bytes, volume_scale: float = 1.0) -> bytes:
+    """モノラルPCMをステレオに変換し、オプションで音量を増幅する"""
     stereo_data = bytearray()
     for i in range(0, len(mono_pcm), 2):
-        sample = mono_pcm[i:i+2]
+        # 16bit符号付き整数としてパース
+        sample_val = struct.unpack("<h", mono_pcm[i:i+2])[0]
+        
+        # 音量を増幅
+        if volume_scale != 1.0:
+            sample_val = int(sample_val * volume_scale)
+            # クリッピング処理
+            if sample_val > 32767: sample_val = 32767
+            elif sample_val < -32768: sample_val = -32768
+            
+        sample = struct.pack("<h", sample_val)
         stereo_data.extend(sample)
         stereo_data.extend(sample)
     return bytes(stereo_data)

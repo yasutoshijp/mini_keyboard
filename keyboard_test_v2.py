@@ -33,12 +33,17 @@ load_dotenv()
 ENV = os.getenv('ENVIRONMENT', 'jikka')
 SPEAKER_CARD = os.getenv('SPEAKER_CARD', '2')
 MIC_CARD = os.getenv('MIC_CARD', '3')
-MIN_VOLUME = int(os.getenv('MIN_VOLUME', '50'))
+MIN_VOLUME = int(os.getenv('MIN_VOLUME', '15'))
+DIRECTION_VOLUME = int(os.getenv('DIRECTION_VOLUME', '100'))
+DIRECTION_BOOST = float(os.getenv('DIRECTION_BOOST', '4.0'))
 
+# 環境設定の確認
 print(f"🌍 環境: {ENV}")
 print(f"🔊 スピーカー: hw:{SPEAKER_CARD},0")
 print(f"🎤 マイク: hw:{MIC_CARD},0")
-print(f"📉 音量下限: {MIN_VOLUME}%")
+print(f"📉 背景音最小音量: {MIN_VOLUME}%")
+print(f"🧭 方向通知割り込み音量: {DIRECTION_VOLUME}%")
+print(f"🚀 方向通知ベースブースト: {DIRECTION_BOOST}倍")
 
 
 
@@ -111,7 +116,8 @@ blog_ready_start_time = 0
 
 
 # pygame初期化
-pygame.mixer.init(frequency=48000, channels=2, buffer=4096)
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
+pygame.mixer.set_num_channels(16) # チャンネル数を増やす
 
 # 音声を事前ロード
 sounds = {}
@@ -214,6 +220,8 @@ class SequentialAudioManager:
     def __init__(self):
         self.queue = queue.Queue(maxsize=10) # 内部的には余裕を持たせるが外部から制御
         self.current_process = None
+        self.current_sound = None  # 現在再生中の Sound オブジェクト
+        self.current_item_type = None # 現在再生中のアイテムタイプ
         self.stop_requested = False
         self.worker_thread = threading.Thread(target=self._worker, daemon=True)
         self.worker_thread.start()
@@ -228,8 +236,10 @@ class SequentialAudioManager:
             print(f"🎬 再生開始 (Queue): {item_type}")
             
             try:
+                self.current_item_type = item_type
                 if item_type == "sound":
-                    data.play(loops=loops)
+                    self.current_sound = data
+                    self.current_sound.play(loops=loops)
                     # 再生終了を待つ
                     while pygame.mixer.get_busy() and not self.stop_requested:
                         time.sleep(0.05)
@@ -237,16 +247,15 @@ class SequentialAudioManager:
                 elif item_type == "file":
                     # wavはpygame、他はffplay
                     if data.endswith('.wav'):
-                        sound = pygame.mixer.Sound(data)
-                        sound.play(loops=loops)
+                        self.current_sound = pygame.mixer.Sound(data)
+                        self.current_sound.play(loops=loops)
                         while pygame.mixer.get_busy() and not self.stop_requested:
                             time.sleep(0.05)
                     else:
                         env = os.environ.copy()
                         env['SDL_AUDIODRIVER'] = 'alsa'
-                        # env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0' # dmixを使うためコメントアウト
                         env['AUDIODEV'] = 'plug:dmixed'
-                        # ffplayにも明示的にデバイスを指定 (envで指定しているので -aoオプションは削除してSDLに任せる)
+                        # ffplay
                         self.current_process = subprocess.Popen(
                             ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -255,24 +264,22 @@ class SequentialAudioManager:
                             time.sleep(0.1)
                 
                 elif item_type == "url":
-                    # pygame.mixer.quit() # ffplayのために一旦解放 (dmixなら不要)
-                    
                     env = os.environ.copy()
                     env['SDL_AUDIODRIVER'] = 'alsa'
-                    # env['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
                     env['AUDIODEV'] = 'plug:dmixed'
-                    # ffplayにも明示的にデバイスを指定 (envで指定しているので -aoオプションは削除してSDLに任せる)
-                    # デバッグ用に stderr を表示する
+                    # ffplay
                     self.current_process = subprocess.Popen(
                         ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
                         env=env, stdout=subprocess.DEVNULL, stderr=None
                     )
                     while self.current_process.poll() is None and not self.stop_requested:
                         time.sleep(0.1)
-                    # pygame.mixer.init(frequency=48000, channels=2, buffer=1024)
 
             except Exception as e:
                 print(f"❌ 再生エラー: {e}")
+            finally:
+                self.current_sound = None
+                self.current_item_type = None
             
             # 停止フラグを戻す
             if self.stop_requested:
@@ -326,6 +333,13 @@ class SequentialAudioManager:
                 self.current_process.wait(timeout=0.5)
             except: pass
             self.current_process = None
+        
+        self.current_sound = None
+        self.current_item_type = None
+
+    def update_volume(self, volume):
+        """リアルタイム音量更新（割り込み方式では使用しませんが、互換性のため残す場合は何もしない）"""
+        pass
 
 audio_mgr = SequentialAudioManager()
 
@@ -606,28 +620,31 @@ notifier = None
 
 # ========== 方角読み上げ機能 (HTTP Server) ==========
 
-def ensure_direction_voices():
+def ensure_direction_voices(force=False):
     """方角読み上げ用の音声ファイルを生成"""
     direction_dir = os.path.join(AUDIO_DIR, "direction")
     os.makedirs(direction_dir, exist_ok=True)
     
     directions = {
-        'north': '北です',
-        'east': '東です',
-        'south': '南です',
-        'west': '西です'
+        'north': '北、ベッド方向です。おしりを前にずらし左手を前に出すとスタート地点があります。',
+        'east': '東、食卓です。',
+        'south': '南、卵豆腐冷蔵庫前',
+        'west': '西、ひとつもどしてください。'
     }
     
     for key, text in directions.items():
         filepath = os.path.join(direction_dir, f"{key}.wav")
-        if not os.path.exists(filepath):
-            print(f"🔊 方角音声生成中: {text}")
+        if not os.path.exists(filepath) or force:
+            print(f"🔊 方角音声生成中 (SSML/Vol+10dB): {text}")
             try:
-                pcm = text_to_speech_polly(text)
-                wav = make_wav_from_pcm(mono_to_stereo_pcm(pcm))
+                # SSMLを使用して音量を上げる (+10dB)
+                ssml_text = f"<speak><prosody volume='+10dB'>{text}</prosody></speak>"
+                pcm = text_to_speech_polly(ssml_text, text_type='ssml')
+                # ソフトウェア・ブースト (DIRECTION_BOOST倍) を適用
+                wav = make_wav_from_pcm(mono_to_stereo_pcm(pcm, volume_scale=DIRECTION_BOOST))
                 with open(filepath, 'wb') as f:
                     f.write(wav)
-                print(f"✓ 生成完了: {filepath}")
+                print(f"✓ 生成完了 (Vol 4.0x): {filepath}")
             except Exception as e:
                 print(f"⚠️ 方角音声生成エラー ({key}): {e}")
 
@@ -640,25 +657,76 @@ def handle_direction():
         if not direction:
             return jsonify({"ok": False, "error": "No direction specified"}), 400
             
-        sound_key = f'dir_{direction}'
-        
-        # 音声ファイルを再生（緊急割り込み）
-        # sound_filesの辞書キーと対応させる
-        if sound_key in sounds:
-            print(f"🧭 方角通知: {direction}")
-            # audio_mgr.play("sound", sounds[sound_key], urgent=True) # これだと止まってしまう
-            # 重ねて再生するために直接再生する
-            sounds[sound_key].play()
-            return jsonify({"ok": True, "direction": direction})
-        
-        # ファイルから直接再生（ロードされていない場合のフォールバック）
         filepath = os.path.join(AUDIO_DIR, "direction", f"{direction}.wav")
+        
+        # 音声ファイルを再生
+        # 実行中に書き換えられた場合に備えて、キャッシュ(sounds)を使わず
+        # その都度ファイルを読み込んで再生する
         if os.path.exists(filepath):
-            print(f"🧭 方角通知(ファイル): {direction}")
-            # audio_mgr.play("file", filepath, urgent=True)
-            # 直接再生
-            pygame.mixer.Sound(filepath).play()
-            return jsonify({"ok": True, "direction": direction})
+            print(f"🧭 方向通知 (詳細デバッグ): {direction} -> {filepath}")
+            try:
+                # 1. 現在鳴っている全てのチャンネルを特定して一時停止
+                paused_channels = []
+                for i in range(pygame.mixer.get_num_channels()):
+                    c = pygame.mixer.Channel(i)
+                    if c.get_busy():
+                        print(f"DEBUG: Pausing active channel {i}")
+                        c.pause()
+                        paused_channels.append(c)
+                
+                # 2. ハードウェア音量を引き上げる (ブースト)
+                target_vol = DIRECTION_VOLUME
+                print(f"DEBUG: amixer setting [PCM] volume to {target_vol}% (from variable DIRECTION_VOLUME)")
+                res = subprocess.run(
+                    ['amixer', '-c', SPEAKER_CARD, 'sset', 'PCM', f'{target_vol}%'],
+                    capture_output=True, text=True
+                )
+                if res.returncode != 0:
+                    print(f"⚠️ amixer PCM error: {res.stderr.strip()}")
+                    # PCMがなければMasterを試す
+                    print(f"DEBUG: amixer trying [Master] volume to {target_vol}%")
+                    subprocess.run(['amixer', '-c', SPEAKER_CARD, 'sset', 'Master', f'{target_vol}%'], stdout=subprocess.DEVNULL)
+                
+                time.sleep(0.2) # 音量切り替えの安定待ち
+                
+                # 3. 再生
+                s = pygame.mixer.Sound(filepath)
+                s.set_volume(1.0)
+                channel = s.play()
+                
+                if channel:
+                    print(f"DEBUG: Sound started on channel {channel.get_name() if hasattr(channel, 'get_name') else 'unknown'}")
+                    channel.unpause() # 明示的にアンパーズ（念のため）
+                    
+                    # 4. 再生終了を待つ
+                    start_wait = time.time()
+                    while channel.get_busy():
+                        time.sleep(0.05)
+                    print(f"DEBUG: Play finished in {time.time() - start_wait:.2f}s")
+                else:
+                    print("⚠️ エラー: 再生チャンネルを確保できませんでした")
+                    time.sleep(1.5)
+                
+                # 5. 音量を元に戻す
+                subprocess.run(
+                    ['amixer', '-c', SPEAKER_CARD, 'sset', 'PCM', f'{current_volume}%'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                # Masterも一応戻す
+                subprocess.run(['amixer', '-c', SPEAKER_CARD, 'sset', 'Master', f'{current_volume}%'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # 6. 一時停止していたチャンネルを再開
+                print(f"DEBUG: Resuming {len(paused_channels)} channels")
+                for c in paused_channels:
+                    c.unpause()
+                
+                return jsonify({"ok": True, "direction": direction})
+            except Exception as e:
+                print(f"⚠️ 再生エラー: {e}")
+                # エラー時も復元を試みる
+                subprocess.run(['amixer', '-c', SPEAKER_CARD, 'sset', 'PCM', f'{current_volume}%'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                pygame.mixer.unpause()
+                return jsonify({"ok": False, "error": str(e)}), 500
             
         return jsonify({"ok": False, "error": "Audio file not found"}), 404
         
@@ -835,7 +903,7 @@ def adjust_volume_loop(direction):
         else:  # up
             current_volume = min(100, current_volume + 5)
 
-        # ALSAで音量設定
+        # ALSAで音量設定を復元
         subprocess.run(
             ['amixer', '-c', SPEAKER_CARD, 'sset', 'PCM', f'{current_volume}%'],
             stdout=subprocess.DEVNULL,
@@ -844,12 +912,16 @@ def adjust_volume_loop(direction):
 
         print(f"🔊 音量: {current_volume}%")
 
+        # リアルタイム音量反映は amixer 経由になったため、audio_mgr への通知は不要
+
         # pygameが初期化されている場合のみビープ音再生
         try:
             if pygame.mixer.get_init() and 'beep' in sounds:
-                sounds['beep'].play()
-        except:
-            pass  # pygameが停止中の場合は無視
+                s = sounds['beep']
+                s.set_volume(1.0) # システム音量で管理するため 1.0
+                s.play()
+        except Exception as e:
+            print(f"⚠️ ビープ再生エラー: {e}")
 
         time.sleep(0.3)
 
@@ -1084,8 +1156,8 @@ def handle_back_button():
     elif mode == "blog_confirm":
         # 投稿をキャンセル
         if 'blog_cancel' in sounds:
-            sounds['blog_cancel'].play()
-            # キャンセル音声の再生完了を待つ
+            audio_mgr.play("sound", sounds['blog_cancel'], urgent=True)
+            # キャンセル音声の再生完了を待つ (manager経由なので大体の待ち)
             time.sleep(2.0)
 
         mode = "main_menu"
@@ -1138,7 +1210,7 @@ def main():
 
     # 初期音量設定
     subprocess.run(
-        ['amixer', '-c', '2', 'sset', 'PCM', f'{current_volume}%'],
+        ['amixer', '-c', SPEAKER_CARD, 'sset', 'PCM', f'{current_volume}%'],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
@@ -1191,7 +1263,7 @@ def main():
                         print("\n⏱️ タイムアウト: キャンセルします\n")
 
                         if 'blog_timeout' in sounds:
-                            sounds['blog_timeout'].play()
+                            audio_mgr.play("sound", sounds['blog_timeout'], urgent=True)
                             # タイムアウト音声の再生完了を待つ
                             time.sleep(3.5)
 
@@ -1208,10 +1280,10 @@ def main():
                         
                         # 「戻ります」または「戻る」音声
                         if 'modorimasu' in sounds:
-                            sounds['modorimasu'].play()
+                            audio_mgr.play("sound", sounds['modorimasu'], urgent=True)
                             time.sleep(1.5) # 音声の長さ分待つ（概算）
                         elif 'modoru' in sounds:
-                            sounds['modoru'].play()
+                            audio_mgr.play("sound", sounds['modoru'], urgent=True)
                             time.sleep(0.5)
 
                         mode = "main_menu"
@@ -1228,7 +1300,7 @@ def main():
                         stop_blog_recording()
 
                         if 'blog_confirm' in sounds:
-                            sounds['blog_confirm'].play()
+                            audio_mgr.play("sound", sounds['blog_confirm'], urgent=True)
 
                         mode = "blog_confirm"
                         blog_confirm_start_time = time.time()
@@ -1320,11 +1392,15 @@ def main():
 
                                         # 「再起動します」音声
                                         if 'reboot' in sounds:
-                                            sounds['reboot'].play()
-                                            time.sleep(2.0)  # 音声の長さ分待つ
+                                            s = sounds['reboot']
+                                            s.set_volume(1.0)
+                                            s.play()
+                                            time.sleep(2.0)
 
                                         if 'beep' in sounds:
-                                            sounds['beep'].play()
+                                            s = sounds['beep']
+                                            s.set_volume(1.0)
+                                            s.play()
                                             time.sleep(0.3)
                                         subprocess.run(['sudo', 'reboot'])
                                     else:
