@@ -56,6 +56,11 @@ TITLES_DIR = os.path.join(MUKASHIMUKASHI_DIR, "titles")
 FILELIST_URL = "https://raw.githubusercontent.com/HisakoJP/mukashimukashi/main/filelist.txt"
 AUDIO_BASE_URL = "https://HisakoJP.github.io/mukashimukashi/"
 
+# PulseAudioソケットをsystemdサービスから見えるようにする
+if 'XDG_RUNTIME_DIR' not in os.environ:
+    uid = os.getuid()
+    os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{uid}'
+
 # オーディオデバイス指定（PulseAudio優先、なければALSA）
 os.environ['SDL_AUDIODRIVER'] = 'pulseaudio'
 
