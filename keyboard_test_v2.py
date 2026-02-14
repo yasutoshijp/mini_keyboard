@@ -57,10 +57,7 @@ FILELIST_URL = "https://raw.githubusercontent.com/HisakoJP/mukashimukashi/main/f
 AUDIO_BASE_URL = "https://HisakoJP.github.io/mukashimukashi/"
 
 # オーディオデバイス指定
-# dmixを使うため、hw:X,Y ではなく plug:dmixed を明示的に使う(.asoundrc参照)
-# os.environ['AUDIODEV'] = f'hw:{SPEAKER_CARD},0' 
 os.environ['SDL_AUDIODRIVER'] = 'alsa'
-os.environ['AUDIODEV'] = 'plug:dmixed'
 
 
 
@@ -115,8 +112,20 @@ current_volume = 70
 blog_ready_start_time = 0
 
 
-# pygame初期化
-pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
+# pygame初期化（環境に合わせてフォールバック）
+_audio_devices = ['plug:dmixed', f'hw:{SPEAKER_CARD},0', 'default']
+for _dev in _audio_devices:
+    try:
+        os.environ['AUDIODEV'] = _dev
+        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
+        print(f"🔊 オーディオデバイス: {_dev}")
+        break
+    except pygame.error:
+        print(f"⚠️ {_dev} を開けません。次を試します...")
+        continue
+else:
+    print("❌ 利用可能なオーディオデバイスが見つかりません")
+    sys.exit(1)
 pygame.mixer.set_num_channels(16) # チャンネル数を増やす
 
 # 音声を事前ロード
