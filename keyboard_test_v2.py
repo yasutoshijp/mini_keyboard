@@ -57,10 +57,8 @@ FILELIST_URL = "https://raw.githubusercontent.com/HisakoJP/mukashimukashi/main/f
 AUDIO_BASE_URL = "https://HisakoJP.github.io/mukashimukashi/"
 
 # オーディオデバイス指定
-# dmixを使うため、hw:X,Y ではなく plug:dmixed を明示的に使う(.asoundrc参照)
-# os.environ['AUDIODEV'] = f'hw:{SPEAKER_CARD},0' 
 os.environ['SDL_AUDIODRIVER'] = 'alsa'
-os.environ['AUDIODEV'] = 'plug:dmixed'
+os.environ['AUDIODEV'] = f'hw:{SPEAKER_CARD},0'
 
 
 
