@@ -1237,9 +1237,14 @@ def main():
             keyboard = device
             break
 
-    if not keyboard:
-        print("\nキーボードが見つかりません")
-        return
+    while not keyboard:
+        print("\nキーボードが見つかりません。10秒後に再検出します...")
+        time.sleep(10)
+        devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+        for device in devices:
+            if 'Keyboard' in device.name and 'Mouse' not in device.name:
+                keyboard = device
+                break
 
     print(f"\n使用デバイス: {keyboard.name}")
     print(f"パス: {keyboard.path}")
