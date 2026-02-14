@@ -56,8 +56,8 @@ TITLES_DIR = os.path.join(MUKASHIMUKASHI_DIR, "titles")
 FILELIST_URL = "https://raw.githubusercontent.com/HisakoJP/mukashimukashi/main/filelist.txt"
 AUDIO_BASE_URL = "https://HisakoJP.github.io/mukashimukashi/"
 
-# オーディオデバイス指定
-os.environ['SDL_AUDIODRIVER'] = 'alsa'
+# オーディオデバイス指定（PulseAudio優先、なければALSA）
+os.environ['SDL_AUDIODRIVER'] = 'pulseaudio'
 
 
 
@@ -112,20 +112,26 @@ current_volume = 70
 blog_ready_start_time = 0
 
 
-# pygame初期化（環境に合わせてフォールバック）
-_audio_devices = ['plug:dmixed', f'plughw:{SPEAKER_CARD},0', f'hw:{SPEAKER_CARD},0', 'default']
-for _dev in _audio_devices:
-    try:
-        os.environ['AUDIODEV'] = _dev
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
-        print(f"🔊 オーディオデバイス: {_dev}")
-        break
-    except pygame.error:
-        print(f"⚠️ {_dev} を開けません。次を試します...")
-        continue
-else:
-    print("❌ 利用可能なオーディオデバイスが見つかりません")
-    sys.exit(1)
+# pygame初期化（PulseAudio優先、ALSAフォールバック）
+try:
+    pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
+    print(f"🔊 オーディオドライバー: {os.environ.get('SDL_AUDIODRIVER', 'auto')}")
+except pygame.error:
+    print("⚠️ PulseAudioで開けません。ALSAで再試行...")
+    os.environ['SDL_AUDIODRIVER'] = 'alsa'
+    _audio_devices = ['plug:dmixed', f'plughw:{SPEAKER_CARD},0', f'hw:{SPEAKER_CARD},0', 'default']
+    for _dev in _audio_devices:
+        try:
+            os.environ['AUDIODEV'] = _dev
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=1024)
+            print(f"🔊 オーディオデバイス: {_dev}")
+            break
+        except pygame.error:
+            print(f"⚠️ {_dev} を開けません。次を試します...")
+            continue
+    else:
+        print("❌ 利用可能なオーディオデバイスが見つかりません")
+        sys.exit(1)
 pygame.mixer.set_num_channels(16) # チャンネル数を増やす
 
 # 音声を事前ロード
