@@ -113,7 +113,7 @@ blog_ready_start_time = 0
 
 
 # pygame初期化（環境に合わせてフォールバック）
-_audio_devices = ['plug:dmixed', f'hw:{SPEAKER_CARD},0', 'default']
+_audio_devices = ['plug:dmixed', f'plughw:{SPEAKER_CARD},0', f'hw:{SPEAKER_CARD},0', 'default']
 for _dev in _audio_devices:
     try:
         os.environ['AUDIODEV'] = _dev
