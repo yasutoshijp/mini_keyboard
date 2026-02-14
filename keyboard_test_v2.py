@@ -709,23 +709,16 @@ def handle_direction():
                 
                 time.sleep(0.2) # 音量切り替えの安定待ち
                 
-                # 3. 再生
-                s = pygame.mixer.Sound(filepath)
-                s.set_volume(1.0)
-                channel = s.play()
-                
-                if channel:
-                    print(f"DEBUG: Sound started on channel {channel.get_name() if hasattr(channel, 'get_name') else 'unknown'}")
-                    channel.unpause() # 明示的にアンパーズ（念のため）
-                    
-                    # 4. 再生終了を待つ
-                    start_wait = time.time()
-                    while channel.get_busy():
-                        time.sleep(0.05)
-                    print(f"DEBUG: Play finished in {time.time() - start_wait:.2f}s")
+                # 3. paplayで再生（PulseAudio経由で確実に音を出す）
+                print(f"DEBUG: paplay で再生開始: {filepath}")
+                play_result = subprocess.run(
+                    ['paplay', filepath],
+                    capture_output=True, text=True
+                )
+                if play_result.returncode != 0:
+                    print(f"⚠️ paplay エラー: {play_result.stderr.strip()}")
                 else:
-                    print("⚠️ エラー: 再生チャンネルを確保できませんでした")
-                    time.sleep(1.5)
+                    print(f"DEBUG: paplay 再生完了")
                 
                 # 5. 音量を元に戻す
                 subprocess.run(
