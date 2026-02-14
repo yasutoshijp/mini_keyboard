@@ -738,7 +738,7 @@ def run_flask_server():
     """Flaskサーバーを起動"""
     print("🚀 HTTPサーバー起動 (Port: 5000)")
     # debug=False, use_reloader=False は必須（スレッド実行のため）
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    app.run(host='::', port=5000, debug=False, use_reloader=False)
 
 
 
