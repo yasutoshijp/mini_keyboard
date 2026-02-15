@@ -65,8 +65,8 @@ def detect_audio_devices():
     return speaker, mic
 
 ENV = os.getenv('ENVIRONMENT', 'jikka')
-_speaker_env = os.getenv('SPEAKER_CARD', 'auto')
-_mic_env = os.getenv('MIC_CARD', 'auto')
+_speaker_env = os.getenv('SPEAKER_CARD', 'auto').strip().lower()
+_mic_env = os.getenv('MIC_CARD', 'auto').strip().lower()
 
 if _speaker_env == 'auto' or _mic_env == 'auto':
     print("🔍 オーディオデバイスを自動検出中...")
