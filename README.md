@@ -210,8 +210,8 @@ Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
 ```bash
 # -z は使わない（WAVは非圧縮なのでCPU負荷が増えるだけで逆効果）
 # jikka-pi3 = 旧ラズパイ（Tailscale MagicDNS）
-rsync -av yasutoshi@jikka-pi3:~/mini_keyboard/audio/ ~/mini_keyboard/audio/
-rsync -av yasutoshi@jikka-pi3:~/mini_keyboard/cache/ ~/mini_keyboard/cache/
+rsync -av yasutoshi@jikka-pi3:~/projects/06.mini_keyboard/audio/ ~/projects/06.mini_keyboard/audio/
+rsync -av yasutoshi@jikka-pi3:~/projects/06.mini_keyboard/cache/ ~/projects/06.mini_keyboard/cache/
 ```
 
 > **Note:** `-z`（圧縮）を付けるとラズパイのCPUがボトルネックになり大幅に遅くなる。
