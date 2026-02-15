@@ -324,7 +324,7 @@ class SequentialAudioManager:
                     else:
                         env = os.environ.copy()
                         env['SDL_AUDIODRIVER'] = 'alsa'
-                        env['AUDIODEV'] = 'plug:dmixed'
+                        env['AUDIODEV'] = f'plughw:{SPEAKER_CARD},0'
                         # ffplay
                         self.current_process = subprocess.Popen(
                             ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
@@ -336,7 +336,7 @@ class SequentialAudioManager:
                 elif item_type == "url":
                     env = os.environ.copy()
                     env['SDL_AUDIODRIVER'] = 'alsa'
-                    env['AUDIODEV'] = 'plug:dmixed'
+                    env['AUDIODEV'] = f'plughw:{SPEAKER_CARD},0'
                     # ffplay
                     self.current_process = subprocess.Popen(
                         ['ffplay', '-nodisp', '-autoexit', '-af', 'aformat=sample_fmts=s16:sample_rates=48000', data],
