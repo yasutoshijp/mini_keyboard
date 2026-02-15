@@ -105,14 +105,14 @@ mini_keyboard/
 
 管理コマンド例：
 ```bash
-# ステータス確認（Tailscaleホスト名を使用）
-ssh user@<ホスト名> "systemctl status mukashimukashi.service"
+# ステータス確認（Tailscale MagicDNS ホスト名を使用）
+ssh yasutoshi@raspberrypi-1 "systemctl status mukashimukashi.service"
 
 # ログ確認
-ssh user@<ホスト名> "journalctl -u mukashimukashi.service -f"
+ssh yasutoshi@raspberrypi-1 "journalctl -u mukashimukashi.service -f"
 
 # 再起動
-ssh user@<ホスト名> "sudo systemctl restart mukashimukashi.service"
+ssh yasutoshi@raspberrypi-1 "sudo systemctl restart mukashimukashi.service"
 ```
 
 ---
@@ -209,12 +209,13 @@ Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
 
 ```bash
 # -z は使わない（WAVは非圧縮なのでCPU負荷が増えるだけで逆効果）
-rsync -av user@<旧ホスト名>:~/mini_keyboard/audio/ ~/mini_keyboard/audio/
-rsync -av user@<旧ホスト名>:~/mini_keyboard/cache/ ~/mini_keyboard/cache/
+# jikka-pi3 = 旧ラズパイ（Tailscale MagicDNS）
+rsync -av yasutoshi@jikka-pi3:~/mini_keyboard/audio/ ~/mini_keyboard/audio/
+rsync -av yasutoshi@jikka-pi3:~/mini_keyboard/cache/ ~/mini_keyboard/cache/
 ```
 
 > **Note:** `-z`（圧縮）を付けるとラズパイのCPUがボトルネックになり大幅に遅くなる。
-> Tailscale経由であればホスト名で直接アクセス可能。
+> Tailscale MagicDNS でホスト名 `jikka-pi3` から直接アクセス可能。
 
 **ゼロから生成する場合（AWS Pollyが必要）：**
 
