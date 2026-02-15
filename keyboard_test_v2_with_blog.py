@@ -12,8 +12,9 @@ import requests
 from blog_poster import post_blog
 
 # ========== 設定 ==========
-AUDIO_DIR = "/home/yasutoshi/projects/06.mini_keyboard/audio"
-MUKASHIMUKASHI_DIR = "/home/yasutoshi/projects/06.mini_keyboard/mukashimukashi"
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+AUDIO_DIR = os.path.join(PROJECT_DIR, "audio")
+MUKASHIMUKASHI_DIR = os.path.join(PROJECT_DIR, "mukashimukashi")
 TITLES_DIR = os.path.join(MUKASHIMUKASHI_DIR, "titles")
 
 # GitHub情報（Alexa方式と同じ）

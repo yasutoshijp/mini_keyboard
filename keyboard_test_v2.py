@@ -48,8 +48,9 @@ print(f"🚀 方向通知ベースブースト: {DIRECTION_BOOST}倍")
 
 
 # ========== 設定 ==========
-AUDIO_DIR = "/home/yasutoshi/projects/06.mini_keyboard/audio"
-MUKASHIMUKASHI_DIR = "/home/yasutoshi/projects/06.mini_keyboard/mukashimukashi"
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+AUDIO_DIR = os.path.join(PROJECT_DIR, "audio")
+MUKASHIMUKASHI_DIR = os.path.join(PROJECT_DIR, "mukashimukashi")
 TITLES_DIR = os.path.join(MUKASHIMUKASHI_DIR, "titles")
 
 # GitHub情報（Alexa方式と同じ）
@@ -444,7 +445,7 @@ def play_fan_message_name(index):
     
     # ファイルパスを生成してキューへ
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
-    name_file = f"/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/names/{ts}_{name}.wav"
+    name_file = f"{PROJECT_DIR}/cache/fan_messages/names/{ts}_{name}.wav"
     
     # 【追加】ファイルがなければその場で生成（セルフヒーリング）
     if not os.path.exists(name_file):
@@ -477,7 +478,7 @@ def play_fan_message_content(index):
     
     # キャッシュからファイルをキューへ
     from pathlib import Path
-    MESSAGES_DIR = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/messages")
+    MESSAGES_DIR = Path(PROJECT_DIR) / "cache" / "fan_messages" / "messages"
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
     message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
     
@@ -511,7 +512,7 @@ def stop_fan_message():
 # ========== 通知・リマインド管理 ==========
 
 class NotificationManager:
-    STATE_FILE = "/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/notification_state.json"
+    STATE_FILE = os.path.join(PROJECT_DIR, "cache", "fan_messages", "notification_state.json")
     
     def __init__(self):
         self.last_notified_id = ""
@@ -817,7 +818,7 @@ def start_blog_recording():
     """録音開始"""
     global blog_recording_process, blog_audio_file, mode
 
-    blog_audio_file = "/home/yasutoshi/projects/06.mini_keyboard/blog_input.wav"
+    blog_audio_file = os.path.join(PROJECT_DIR, "blog_input.wav")
 
     # 既存ファイルを削除
     if os.path.exists(blog_audio_file):
