@@ -12,6 +12,7 @@ UI効果音・メニュー音声を AWS Polly で一括生成するスクリプ�
 import os
 import sys
 import struct
+import math
 import boto3
 from pathlib import Path
 from dotenv import load_dotenv
@@ -83,6 +84,38 @@ def make_wav_from_pcm(pcm_bytes, sample_rate=16000, channels=2):
     return header + pcm_bytes
 
 
+def generate_beep(filepath, freq=880, duration=0.15, sample_rate=16000, volume=0.5):
+    """正弦波ビープ音を生成"""
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    if filepath.exists():
+        print(f"  スキップ（既存）: {filepath.name}")
+        return
+
+    print(f"  生成中: {filepath.name} ← ビープ音 ({freq}Hz, {duration}s)")
+    num_samples = int(sample_rate * duration)
+    pcm = bytearray()
+    for i in range(num_samples):
+        t = i / sample_rate
+        # フェードイン/アウト（クリックノイズ防止）
+        fade_samples = int(sample_rate * 0.01)
+        envelope = 1.0
+        if i < fade_samples:
+            envelope = i / fade_samples
+        elif i > num_samples - fade_samples:
+            envelope = (num_samples - i) / fade_samples
+        sample_val = int(math.sin(2 * math.pi * freq * t) * 32767 * volume * envelope)
+        sample_val = max(-32768, min(32767, sample_val))
+        pcm.extend(struct.pack("<h", sample_val))
+
+    stereo_pcm = mono_to_stereo_pcm(bytes(pcm))
+    wav = make_wav_from_pcm(stereo_pcm, sample_rate=sample_rate)
+    with open(filepath, "wb") as f:
+        f.write(wav)
+    print(f"  ✓ 完了: {filepath.name}")
+
+
 def generate_wav(text, filepath, text_type="text", volume_scale=1.0):
     """テキストからWAVファイルを生成"""
     filepath = Path(filepath)
@@ -118,11 +151,14 @@ def main():
     for i, item in enumerate(menu_items):
         generate_wav(item, AUDIO_DIR / f"menu_{i}.wav")
 
+    # ビープ音（正弦波で生成）
+    print("\n--- ビープ音 ---")
+    generate_beep(AUDIO_DIR / "beep.wav", freq=880, duration=0.15)
+
     # UI効果音
     ui_sounds = {
         "kettei.wav": "決定",
         "modoru.wav": "戻ります",
-        "beep.wav": "ピッ",
         "saisei.wav": "再生します",
         "reboot.wav": "再起動します",
         "modorimasu.wav": "戻ります",
