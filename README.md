@@ -105,14 +105,14 @@ mini_keyboard/
 
 管理コマンド例：
 ```bash
-# ステータス確認
-ssh yasutoshi@192.168.4.118 "systemctl status mukashimukashi.service"
+# ステータス確認（Tailscaleホスト名を使用）
+ssh user@<ホスト名> "systemctl status mukashimukashi.service"
 
 # ログ確認
-ssh yasutoshi@192.168.4.118 "journalctl -u mukashimukashi.service -f"
+ssh user@<ホスト名> "journalctl -u mukashimukashi.service -f"
 
 # 再起動
-ssh yasutoshi@192.168.4.118 "sudo systemctl restart mukashimukashi.service"
+ssh user@<ホスト名> "sudo systemctl restart mukashimukashi.service"
 ```
 
 ---
@@ -205,12 +205,16 @@ Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
 
 音声ファイルは `audio/` ディレクトリに配置する。
 
-**既存環境からコピーする場合：**
+**既存環境からコピーする場合（Tailscale経由）：**
 
 ```bash
-rsync -avz user@既存ホスト:~/projects/06.mini_keyboard/audio/ ~/projects/06.mini_keyboard/audio/
-rsync -avz user@既存ホスト:~/projects/06.mini_keyboard/cache/ ~/projects/06.mini_keyboard/cache/
+# -z は使わない（WAVは非圧縮なのでCPU負荷が増えるだけで逆効果）
+rsync -av user@<旧ホスト名>:~/mini_keyboard/audio/ ~/mini_keyboard/audio/
+rsync -av user@<旧ホスト名>:~/mini_keyboard/cache/ ~/mini_keyboard/cache/
 ```
+
+> **Note:** `-z`（圧縮）を付けるとラズパイのCPUがボトルネックになり大幅に遅くなる。
+> Tailscale経由であればホスト名で直接アクセス可能。
 
 **ゼロから生成する場合（AWS Pollyが必要）：**
 
