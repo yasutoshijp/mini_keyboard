@@ -30,17 +30,66 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+# ========== オーディオデバイス自動検出 ==========
+def detect_audio_devices():
+    """aplay -l / arecord -l を解析してUSBオーディオデバイスを自動検出"""
+    def parse_card_numbers(cmd):
+        """コマンド出力からカード番号とデバイス名を取得"""
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            cards = []
+            for line in result.stdout.split('\n'):
+                if line.startswith('カード') or line.startswith('card '):
+                    # "カード 2: ..." or "card 2: ..."
+                    parts = line.split(':')
+                    num = parts[0].split()[-1]
+                    name = parts[1].strip() if len(parts) > 1 else ''
+                    cards.append((num, name))
+            return cards
+        except Exception as e:
+            print(f"⚠️ デバイス検出エラー ({cmd}): {e}")
+            return []
+
+    def pick_usb_card(cards):
+        """USB接続のデバイスを優先して選択（bcm2835等の内蔵を除外）"""
+        for num, name in cards:
+            # 内蔵オーディオを除外
+            if 'bcm2835' in name.lower() or 'vc4' in name.lower() or 'hdmi' in name.lower():
+                continue
+            return num
+        # USBデバイスが見つからなければ最初のカードを返す
+        return cards[0][0] if cards else None
+
+    speaker = pick_usb_card(parse_card_numbers(['aplay', '-l']))
+    mic = pick_usb_card(parse_card_numbers(['arecord', '-l']))
+    return speaker, mic
+
 ENV = os.getenv('ENVIRONMENT', 'jikka')
-SPEAKER_CARD = os.getenv('SPEAKER_CARD', '2')
-MIC_CARD = os.getenv('MIC_CARD', '3')
+_speaker_env = os.getenv('SPEAKER_CARD', 'auto')
+_mic_env = os.getenv('MIC_CARD', 'auto')
+
+if _speaker_env == 'auto' or _mic_env == 'auto':
+    print("🔍 オーディオデバイスを自動検出中...")
+    _det_speaker, _det_mic = detect_audio_devices()
+
+SPEAKER_CARD = _det_speaker if _speaker_env == 'auto' else _speaker_env
+MIC_CARD = _det_mic if _mic_env == 'auto' else _mic_env
+
+if SPEAKER_CARD is None:
+    print("❌ スピーカーデバイスが見つかりません。SPEAKER_CARD を .env に手動設定してください。")
+    SPEAKER_CARD = '0'
+if MIC_CARD is None:
+    print("⚠️ マイクデバイスが見つかりません。録音機能は無効です。")
+    MIC_CARD = '-1'
+
 MIN_VOLUME = int(os.getenv('MIN_VOLUME', '15'))
 DIRECTION_VOLUME = int(os.getenv('DIRECTION_VOLUME', '100'))
 DIRECTION_BOOST = float(os.getenv('DIRECTION_BOOST', '4.0'))
 
 # 環境設定の確認
 print(f"🌍 環境: {ENV}")
-print(f"🔊 スピーカー: hw:{SPEAKER_CARD},0")
-print(f"🎤 マイク: hw:{MIC_CARD},0")
+print(f"🔊 スピーカー: hw:{SPEAKER_CARD},0" + (" (自動検出)" if _speaker_env == 'auto' else ""))
+print(f"🎤 マイク: hw:{MIC_CARD},0" + (" (自動検出)" if _mic_env == 'auto' else ""))
 print(f"📉 背景音最小音量: {MIN_VOLUME}%")
 print(f"🧭 方向通知割り込み音量: {DIRECTION_VOLUME}%")
 print(f"🚀 方向通知ベースブースト: {DIRECTION_BOOST}倍")
