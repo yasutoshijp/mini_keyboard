@@ -1,0 +1,8 @@
+evdev
+pygame
+requests
+python-dotenv
+boto3
+openai
+beautifulsoup4
+flask

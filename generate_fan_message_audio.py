@@ -17,7 +17,8 @@ MESSAGES_API_URL = "https://script.google.com/macros/s/AKfycbwfFiNLr4OAI1aqcn6wd
 
 
 # ディレクトリ設定
-CACHE_DIR = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages")
+PROJECT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+CACHE_DIR = PROJECT_DIR / "cache" / "fan_messages"
 NAMES_DIR = CACHE_DIR / "names"
 MESSAGES_DIR = CACHE_DIR / "messages"
 JSON_FILE = CACHE_DIR / "messages.json"

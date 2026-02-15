@@ -10,7 +10,7 @@ import os
 pygame.mixer.init(frequency=16000, channels=1, buffer=1024)
 
 # 音声ファイルパス
-WAV_FILE = "/home/yasutoshi/projects/06.mini_keyboard/audio/kettei.wav"
+WAV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio", "kettei.wav")
 
 # ファイルの存在確認
 if not os.path.exists(WAV_FILE):

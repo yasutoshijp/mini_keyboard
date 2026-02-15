@@ -5,7 +5,7 @@ import os
 import subprocess
 
 FILELIST_URL = "https://raw.githubusercontent.com/HisakoJP/mukashimukashi/main/filelist.txt"
-TITLES_DIR = "/home/yasutoshi/projects/06.mini_keyboard/mukashimukashi/titles"
+TITLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mukashimukashi", "titles")
 
 # Pollyクライアント作成
 polly = boto3.client('polly', region_name='ap-northeast-1')

@@ -1,0 +1,19 @@
+[Unit]
+Description=Mukashimukashi Mini Keyboard Service
+After=network.target sound.target
+
+[Service]
+Type=simple
+# === ユーザー名とパスをお使いの環境に合わせて変更してください ===
+User=user
+WorkingDirectory=/home/user/mini_keyboard
+ExecStart=/usr/bin/python3 /home/user/mini_keyboard/keyboard_test_v2.py
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

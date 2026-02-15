@@ -21,8 +21,11 @@ SPEAKER_CARD = os.getenv('SPEAKER_CARD', '2')
 # Google Apps Script API URL
 MESSAGES_API_URL = "https://script.google.com/macros/s/AKfycbwfFiNLr4OAI1aqcn6wdDk_Y9tlTRCxOVNzYkf3XJUqpoeG8GJj9qRJqBWNY1wPZ0uKpg/exec"
 
+# プロジェクトディレクトリ
+PROJECT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+
 # キャッシュディレクトリ
-CACHE_DIR = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages")
+CACHE_DIR = PROJECT_DIR / "cache" / "fan_messages"
 NAMES_DIR = CACHE_DIR / "names"
 MESSAGES_DIR = CACHE_DIR / "messages"
 
@@ -39,7 +42,7 @@ def get_fan_messages(force_refresh=False):
     from pathlib import Path
     
     # キャッシュファイルパス
-    cache_file = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/messages.json")
+    cache_file = CACHE_DIR / "messages.json"
     
     # force_refresh が True でない場合はキャッシュを確認
     if not force_refresh and cache_file.exists():

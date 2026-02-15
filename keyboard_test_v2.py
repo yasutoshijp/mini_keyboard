@@ -30,17 +30,66 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+# ========== オーディオデバイス自動検出 ==========
+def detect_audio_devices():
+    """aplay -l / arecord -l を解析してUSBオーディオデバイスを自動検出"""
+    def parse_card_numbers(cmd):
+        """コマンド出力からカード番号とデバイス名を取得"""
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            cards = []
+            for line in result.stdout.split('\n'):
+                if line.startswith('カード') or line.startswith('card '):
+                    # "カード 2: ..." or "card 2: ..."
+                    parts = line.split(':')
+                    num = parts[0].split()[-1]
+                    name = parts[1].strip() if len(parts) > 1 else ''
+                    cards.append((num, name))
+            return cards
+        except Exception as e:
+            print(f"⚠️ デバイス検出エラー ({cmd}): {e}")
+            return []
+
+    def pick_usb_card(cards):
+        """USB接続のデバイスを優先して選択（bcm2835等の内蔵を除外）"""
+        for num, name in cards:
+            # 内蔵オーディオを除外
+            if 'bcm2835' in name.lower() or 'vc4' in name.lower() or 'hdmi' in name.lower():
+                continue
+            return num
+        # USBデバイスが見つからなければ最初のカードを返す
+        return cards[0][0] if cards else None
+
+    speaker = pick_usb_card(parse_card_numbers(['aplay', '-l']))
+    mic = pick_usb_card(parse_card_numbers(['arecord', '-l']))
+    return speaker, mic
+
 ENV = os.getenv('ENVIRONMENT', 'jikka')
-SPEAKER_CARD = os.getenv('SPEAKER_CARD', '2')
-MIC_CARD = os.getenv('MIC_CARD', '3')
+_speaker_env = os.getenv('SPEAKER_CARD', 'auto').strip().lower()
+_mic_env = os.getenv('MIC_CARD', 'auto').strip().lower()
+
+if _speaker_env == 'auto' or _mic_env == 'auto':
+    print("🔍 オーディオデバイスを自動検出中...")
+    _det_speaker, _det_mic = detect_audio_devices()
+
+SPEAKER_CARD = _det_speaker if _speaker_env == 'auto' else _speaker_env
+MIC_CARD = _det_mic if _mic_env == 'auto' else _mic_env
+
+if SPEAKER_CARD is None:
+    print("❌ スピーカーデバイスが見つかりません。SPEAKER_CARD を .env に手動設定してください。")
+    SPEAKER_CARD = '0'
+if MIC_CARD is None:
+    print("⚠️ マイクデバイスが見つかりません。録音機能は無効です。")
+    MIC_CARD = '-1'
+
 MIN_VOLUME = int(os.getenv('MIN_VOLUME', '15'))
 DIRECTION_VOLUME = int(os.getenv('DIRECTION_VOLUME', '100'))
 DIRECTION_BOOST = float(os.getenv('DIRECTION_BOOST', '4.0'))
 
 # 環境設定の確認
 print(f"🌍 環境: {ENV}")
-print(f"🔊 スピーカー: hw:{SPEAKER_CARD},0")
-print(f"🎤 マイク: hw:{MIC_CARD},0")
+print(f"🔊 スピーカー: hw:{SPEAKER_CARD},0" + (" (自動検出)" if _speaker_env == 'auto' else ""))
+print(f"🎤 マイク: hw:{MIC_CARD},0" + (" (自動検出)" if _mic_env == 'auto' else ""))
 print(f"📉 背景音最小音量: {MIN_VOLUME}%")
 print(f"🧭 方向通知割り込み音量: {DIRECTION_VOLUME}%")
 print(f"🚀 方向通知ベースブースト: {DIRECTION_BOOST}倍")
@@ -48,8 +97,9 @@ print(f"🚀 方向通知ベースブースト: {DIRECTION_BOOST}倍")
 
 
 # ========== 設定 ==========
-AUDIO_DIR = "/home/yasutoshi/projects/06.mini_keyboard/audio"
-MUKASHIMUKASHI_DIR = "/home/yasutoshi/projects/06.mini_keyboard/mukashimukashi"
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+AUDIO_DIR = os.path.join(PROJECT_DIR, "audio")
+MUKASHIMUKASHI_DIR = os.path.join(PROJECT_DIR, "mukashimukashi")
 TITLES_DIR = os.path.join(MUKASHIMUKASHI_DIR, "titles")
 
 # GitHub情報（Alexa方式と同じ）
@@ -444,7 +494,7 @@ def play_fan_message_name(index):
     
     # ファイルパスを生成してキューへ
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
-    name_file = f"/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/names/{ts}_{name}.wav"
+    name_file = f"{PROJECT_DIR}/cache/fan_messages/names/{ts}_{name}.wav"
     
     # 【追加】ファイルがなければその場で生成（セルフヒーリング）
     if not os.path.exists(name_file):
@@ -477,7 +527,7 @@ def play_fan_message_content(index):
     
     # キャッシュからファイルをキューへ
     from pathlib import Path
-    MESSAGES_DIR = Path("/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/messages")
+    MESSAGES_DIR = Path(PROJECT_DIR) / "cache" / "fan_messages" / "messages"
     ts = timestamp.replace(':', '').replace('-', '').replace('T', '').replace('Z', '').replace('.000', '').replace('/', '').replace(' ', '')
     message_file = MESSAGES_DIR / f"{ts}_{name}.wav"
     
@@ -511,7 +561,7 @@ def stop_fan_message():
 # ========== 通知・リマインド管理 ==========
 
 class NotificationManager:
-    STATE_FILE = "/home/yasutoshi/projects/06.mini_keyboard/cache/fan_messages/notification_state.json"
+    STATE_FILE = os.path.join(PROJECT_DIR, "cache", "fan_messages", "notification_state.json")
     
     def __init__(self):
         self.last_notified_id = ""
@@ -817,7 +867,7 @@ def start_blog_recording():
     """録音開始"""
     global blog_recording_process, blog_audio_file, mode
 
-    blog_audio_file = "/home/yasutoshi/projects/06.mini_keyboard/blog_input.wav"
+    blog_audio_file = os.path.join(PROJECT_DIR, "blog_input.wav")
 
     # 既存ファイルを削除
     if os.path.exists(blog_audio_file):
