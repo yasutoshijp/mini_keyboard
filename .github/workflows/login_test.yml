@@ -1,0 +1,52 @@
+name: NE Login Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"  # 毎日UTC 0:00に実行
+
+jobs:
+  login-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install ChromeDriver
+        uses: nanasess/setup-chromedriver@v2
+
+      - name: Install Python dependencies
+        run: |
+          pip install selenium
+
+      - name: Run NE login script
+        env:
+          NE_COMPANY: ${{ secrets.NE_COMPANY }}
+          NE_USER: ${{ secrets.NE_USER }}
+          NE_PASSWORD: ${{ secrets.NE_PASSWORD }}
+        run: |
+          python ne_login.py
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ne-screenshots
+          path: |
+            after_login.png
+            after_dismiss.png
+            download_page.png
+            error.png
+          if-no-files-found: ignore
+          retention-days: 7
