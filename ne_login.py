@@ -38,12 +38,11 @@ def create_driver():
 
 def login(driver):
     """ネクストエンジンにログインする"""
-    ne_company = os.environ.get("NE_COMPANY", "")
     ne_user = os.environ.get("NE_USER", "")
     ne_password = os.environ.get("NE_PASSWORD", "")
 
-    if not all([ne_company, ne_user, ne_password]):
-        print("エラー: 環境変数 NE_COMPANY, NE_USER, NE_PASSWORD を設定してください")
+    if not all([ne_user, ne_password]):
+        print("エラー: 環境変数 NE_USER, NE_PASSWORD を設定してください")
         sys.exit(1)
 
     print(f"ログインページにアクセス: {NE_LOGIN_URL}")
@@ -51,15 +50,10 @@ def login(driver):
 
     wait = WebDriverWait(driver, 20)
 
-    # 企業コード入力
-    company_field = wait.until(
-        EC.presence_of_element_located((By.ID, "login_company_code"))
-    )
-    company_field.clear()
-    company_field.send_keys(ne_company)
-
     # ユーザーID入力
-    user_field = driver.find_element(By.ID, "login_id")
+    user_field = wait.until(
+        EC.presence_of_element_located((By.ID, "login_id"))
+    )
     user_field.clear()
     user_field.send_keys(ne_user)
 

@@ -32,7 +32,6 @@ jobs:
 
       - name: Run NE login script
         env:
-          NE_COMPANY: ${{ secrets.NE_COMPANY }}
           NE_USER: ${{ secrets.NE_USER }}
           NE_PASSWORD: ${{ secrets.NE_PASSWORD }}
         run: |
